@@ -1,0 +1,7 @@
+# Holdings and daily snapshots — do not commit personal financial data
+data.json
+data.json.tmp
+data-backups/
+
+.DS_Store
+*.tmp

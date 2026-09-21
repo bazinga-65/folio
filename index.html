@@ -1,0 +1,982 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Net worth</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Hanken+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0e1b20;
+    --surface: #142830;
+    --line: #24404a;
+    --text: #e8f0ec;
+    --muted: #8fa6a5;
+    --gain: #5ed3a0;
+    --loss: #f27c74;
+    --focus: #e7c65a;
+    --c-us: #6ea8fe;
+    --c-in: #f2a65a;
+    --c-bcash: #5ed3a0;
+    --c-bank: #b39ddb;
+    --c-pf: #e7c65a;
+    --c-other: #e58bb4;
+    --s1: #6ea8fe;
+    --s2: #f2a65a;
+    --s3: #5ed3a0;
+    --s4: #e58bb4;
+    --s5: #e7c65a;
+    --s6: #b39ddb;
+    --s7: #5ec8e0;
+    --s8: #f27c74;
+    --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+    --body: "Hanken Grotesk", "Segoe UI", system-ui, sans-serif;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 400 16px/1.5 var(--body);
+  }
+  button, input, select { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 20px 20px 80px; }
+
+  .top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .brand { font: 700 1rem/1 var(--display); letter-spacing: .01em; color: var(--muted); }
+  .tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .seg-ctl { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; padding: 3px; }
+  .seg-ctl button { border: 0; background: none; padding: 5px 14px; border-radius: 999px; color: var(--muted); font-weight: 600; }
+  .seg-ctl button[aria-pressed="true"] { background: var(--text); color: var(--bg); }
+  .icon-btn { border: 1px solid var(--line); background: none; border-radius: 999px; padding: 6px 14px; color: var(--muted); font-weight: 500; }
+  .icon-btn[aria-pressed="true"] { color: var(--text); border-color: var(--text); }
+
+  .status { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; font-size: .75rem; color: var(--muted); }
+  .status .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none; }
+  .status.live .dot { background: var(--gain); }
+  .status.offline .dot { background: var(--loss); }
+  .status.partial .dot { background: var(--focus); }
+  .status .lnk { color: var(--muted); text-decoration: none; font-weight: 500; }
+  .status .lnk:hover { color: var(--text); }
+  .lnk { background: none; border: 0; padding: 0; color: var(--text); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line); font-size: inherit; }
+  .lnk:hover { text-decoration-color: currentColor; }
+  .lnk.del:hover { color: var(--loss); }
+
+  .tabs { display: flex; gap: 4px; overflow-x: auto; margin: 16px 0 0; border-bottom: 1px solid var(--line); scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tabs button { background: none; border: 0; padding: 10px 14px; color: var(--muted); font-weight: 600; white-space: nowrap; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--text); }
+
+  .hero { padding: 28px 0 18px; }
+  .hero-label { margin: 0 0 6px; color: var(--muted); font-weight: 500; }
+  .total {
+    margin: 0;
+    font: 700 clamp(2.6rem, 9vw, 5.6rem)/1 var(--display);
+    letter-spacing: -.035em;
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+  }
+  .sub { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 14px 0 0; color: var(--muted); font-size: .9375rem; }
+  .day { margin: 6px 0 0; font-size: .9375rem; }
+  .hero.compact {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px;
+    padding: 16px 0 14px; border-bottom: 1px solid var(--line);
+  }
+  .hero.compact .hero-label { display: none; }
+  .hero.compact .total { font-size: clamp(1.35rem, 4vw, 1.75rem); letter-spacing: -.02em; }
+  .hero.compact .day { margin: 0; font-size: .875rem; }
+  .hero.compact .sub { flex: 1 1 100%; margin: 0; font-size: .8125rem; }
+  .gain { color: var(--gain); }
+  .loss { color: var(--loss); }
+
+  .split {
+    display: grid; grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px 36px; align-items: center; margin-bottom: 8px;
+  }
+  .donut { position: relative; flex: none; }
+  .donut svg { display: block; }
+  .donut-hole {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; text-align: center;
+    pointer-events: none; padding: 18%;
+  }
+  .donut-hole strong {
+    font: 700 1.15rem/1 var(--display); letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+  }
+  .donut-hole span {
+    color: var(--muted); font-size: .7rem; line-height: 1.25; margin-top: 4px;
+    max-width: 14ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .donut.intro { animation: pop .7s cubic-bezier(.2,.7,.2,1) both; }
+  @keyframes pop { from { transform: scale(.92); opacity: 0; } to { transform: none; opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .donut.intro { animation: none; } }
+  .sub-alloc { margin: 6px 0 16px; }
+
+  .cats { display: grid; gap: 0; border-top: 1px solid var(--line); }
+  .cat {
+    display: grid; grid-template-columns: 14px 1fr auto 64px auto; align-items: center; gap: 14px;
+    width: 100%; text-align: left; background: none; border: 0; border-bottom: 1px solid var(--line);
+    padding: 14px 4px;
+  }
+  .cat:hover { background: var(--surface); }
+  .sw { width: 12px; height: 12px; border-radius: 3px; display: block; }
+  .cn { font-weight: 600; }
+  .cv { font-variant-numeric: tabular-nums; font-weight: 600; text-align: right; }
+  .cp { color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
+  .cg { font-variant-numeric: tabular-nums; text-align: right; min-width: 110px; font-size: .875rem; }
+
+  .panel { padding-top: 22px; }
+  .panel.tight { padding-top: 18px; }
+
+  h2 { font: 700 1.5rem/1.2 var(--display); letter-spacing: -.015em; margin: 0; }
+  h3 { font: 700 1.125rem/1.2 var(--display); margin: 0; }
+  .head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+  .head .tot { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .head .tot b { color: var(--text); font-weight: 600; }
+  .btn { background: var(--text); color: var(--bg); border: 0; border-radius: 8px; padding: 8px 14px; font-weight: 600; }
+  .btn.ghost { background: none; color: var(--text); border: 1px solid var(--line); }
+  .btn.ghost:hover { border-color: var(--text); }
+  .block + .block { margin-top: 40px; }
+
+  .ghead {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+    padding: 20px 4px 6px; color: var(--muted);
+  }
+  .ghead h3 { font: 600 .9375rem/1.3 var(--body); }
+  .ghead .tot { font-variant-numeric: tabular-nums; font-size: .875rem; }
+  .ghead:first-child { padding-top: 8px; }
+
+  .tw { overflow-x: auto; border-top: 1px solid var(--line); }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  table.wide { min-width: 640px; }
+  th { text-align: left; font-weight: 500; color: var(--muted); font-size: .8125rem; padding: 10px 10px 8px; white-space: nowrap; }
+  td { padding: 12px 10px; border-top: 1px solid var(--line); vertical-align: top; }
+  th.r, td.r { text-align: right; }
+  td small, .meta { display: block; color: var(--muted); font-size: .8125rem; font-weight: 400; }
+  td.act { white-space: nowrap; width: 1%; }
+  td.act .lnk + .lnk { margin-left: 12px; }
+  tr .act { opacity: 0; }
+  tr:hover .act, tr:focus-within .act { opacity: 1; }
+  @media (hover: none) { tr .act { opacity: 1; } }
+  .src { display: block; font-size: .75rem; color: var(--muted); }
+  .src-live { color: var(--gain); }
+  .src-cost { color: var(--loss); }
+  .empty { margin: 0; padding: 18px 0; color: var(--muted); border-top: 1px solid var(--line); }
+  .note { color: var(--muted); font-size: .875rem; max-width: 62ch; margin: 12px 0 0; }
+  .log { margin: 14px 0 0; padding: 0; list-style: none; font-size: .875rem; color: var(--muted); }
+  .log li { display: flex; gap: 14px; padding: 3px 0; }
+
+  .start { border: 1px dashed var(--line); border-radius: 12px; padding: 28px; }
+  .start p { margin: 0 0 14px; max-width: 56ch; color: var(--muted); }
+  .start .row { display: flex; gap: 10px; flex-wrap: wrap; }
+
+  .field { display: grid; gap: 6px; margin-bottom: 18px; max-width: 460px; }
+  .field label, .field .label { font-weight: 600; }
+  .field .hint, .hint { color: var(--muted); font-size: .875rem; }
+  input, select { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; width: 100%; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+
+  .themes { display: flex; flex-wrap: wrap; gap: 10px; max-width: none; }
+  .theme-btn {
+    border: 1px solid var(--line); background: none; border-radius: 10px;
+    padding: 10px 12px 9px; min-width: 104px; text-align: left; font-weight: 600;
+  }
+  .theme-btn[aria-pressed="true"] { border-color: var(--text); color: var(--text); }
+  .theme-btn .chips { display: flex; height: 10px; border-radius: 3px; overflow: hidden; margin-bottom: 8px; }
+  .theme-btn .chips i { flex: 1; display: block; }
+
+  dialog { background: var(--surface); color: var(--text); border: 1px solid var(--line); border-radius: 14px; padding: 24px; width: min(440px, calc(100vw - 32px)); }
+  dialog::backdrop { background: rgba(0,0,0,.55); }
+  dialog .field { max-width: none; margin-bottom: 14px; }
+  dialog input, dialog select { background: var(--bg); }
+  dialog .hint { margin: 0 0 14px; }
+  .adv { margin: 0 0 14px; }
+  .adv summary { color: var(--muted); cursor: pointer; font-weight: 600; margin-bottom: 10px; }
+  .err { color: var(--loss); margin: 0 0 12px; font-size: .875rem; min-height: 0; }
+  .actions { display: flex; justify-content: end; gap: 10px; margin-top: 8px; }
+
+  body.masked .num { filter: blur(8px); user-select: none; }
+  .total.veil, .veil-sub {
+    color: var(--muted); letter-spacing: .18em; user-select: none;
+    font-variant-numeric: normal;
+  }
+  .veil-sub { letter-spacing: .14em; font-weight: 600; }
+
+  @media (max-width: 720px) {
+    .split { grid-template-columns: 1fr; justify-items: center; }
+    .split .cats, .split .tw { width: 100%; }
+  }
+  @media (max-width: 640px) {
+    .cat { grid-template-columns: 14px 1fr auto 56px; }
+    .cg { display: none; }
+    .hero { padding-top: 22px; }
+  }
+</style>
+</head>
+<body>
+<noscript>This dashboard needs JavaScript.</noscript>
+<div class="wrap" id="app"></div>
+
+<dialog id="dlg" aria-labelledby="dlg-title">
+  <form id="frm" autocomplete="off"></form>
+</dialog>
+<datalist id="brokers"></datalist>
+<input type="file" id="file" accept="application/json" hidden>
+
+<script>
+(() => {
+'use strict';
+
+/* ---------- state ---------- */
+const KEY = 'networth.v1';
+const $ = (s, r = document) => r.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid = () => Math.random().toString(36).slice(2, 9);
+
+const THEMES = {
+  forest: {
+    label: 'Forest',
+    dark: {
+      '--bg':'#0e1b20','--surface':'#142830','--line':'#24404a','--text':'#e8f0ec','--muted':'#8fa6a5',
+      '--gain':'#5ed3a0','--loss':'#f27c74','--focus':'#e7c65a',
+      '--c-us':'#6ea8fe','--c-in':'#f2a65a','--c-bcash':'#5ed3a0','--c-bank':'#b39ddb','--c-pf':'#e7c65a','--c-other':'#e58bb4',
+      '--s1':'#6ea8fe','--s2':'#f2a65a','--s3':'#5ed3a0','--s4':'#e58bb4','--s5':'#e7c65a','--s6':'#b39ddb','--s7':'#5ec8e0','--s8':'#f27c74'
+    },
+    light: {
+      '--bg':'#f3f6f4','--surface':'#ffffff','--line':'#d5dfdb','--text':'#10231f','--muted':'#5a716d',
+      '--gain':'#0e8a5f','--loss':'#c23b32','--focus':'#9a6b00',
+      '--c-us':'#2f6fd6','--c-in':'#d9822b','--c-bcash':'#1a9a78','--c-bank':'#7a5cc0','--c-pf':'#c49a12','--c-other':'#cc4f88',
+      '--s1':'#2f6fd6','--s2':'#d9822b','--s3':'#1a9a78','--s4':'#cc4f88','--s5':'#c49a12','--s6':'#7a5cc0','--s7':'#1a8aa8','--s8':'#c23b32'
+    }
+  },
+  slate: {
+    label: 'Slate',
+    dark: {
+      '--bg':'#12141a','--surface':'#1a1d26','--line':'#2c3140','--text':'#e6e8ee','--muted':'#8b90a0',
+      '--gain':'#6ec89a','--loss':'#e07a74','--focus':'#8fa4e8',
+      '--c-us':'#7b93e0','--c-in':'#e0a05c','--c-bcash':'#5ec4b4','--c-bank':'#a78bdb','--c-pf':'#e0c15c','--c-other':'#e08ab0',
+      '--s1':'#7b93e0','--s2':'#e0a05c','--s3':'#5ec4b4','--s4':'#e08ab0','--s5':'#e0c15c','--s6':'#a78bdb','--s7':'#5eb4e0','--s8':'#e07a74'
+    },
+    light: {
+      '--bg':'#f4f5f7','--surface':'#ffffff','--line':'#d8dce4','--text':'#1a1d26','--muted':'#5c6370',
+      '--gain':'#1b7d56','--loss':'#c2473f','--focus':'#3d5bb8',
+      '--c-us':'#3d5bb8','--c-in':'#c47a1a','--c-bcash':'#1a8a7a','--c-bank':'#6b4cb0','--c-pf':'#b89010','--c-other':'#c44f7a',
+      '--s1':'#3d5bb8','--s2':'#c47a1a','--s3':'#1a8a7a','--s4':'#c44f7a','--s5':'#b89010','--s6':'#6b4cb0','--s7':'#1a7aa8','--s8':'#c2473f'
+    }
+  },
+  sand: {
+    label: 'Sand',
+    dark: {
+      '--bg':'#1a1612','--surface':'#241f19','--line':'#3d342b','--text':'#f2ebe3','--muted':'#a89888',
+      '--gain':'#7dbe8e','--loss':'#d9786a','--focus':'#d4a574',
+      '--c-us':'#6ea8d4','--c-in':'#e09a4a','--c-bcash':'#7dbe8e','--c-bank':'#b392d4','--c-pf':'#d4a574','--c-other':'#d4889a',
+      '--s1':'#6ea8d4','--s2':'#e09a4a','--s3':'#7dbe8e','--s4':'#d4889a','--s5':'#d4a574','--s6':'#b392d4','--s7':'#6ec4c0','--s8':'#d9786a'
+    },
+    light: {
+      '--bg':'#f6f1ea','--surface':'#fffdf9','--line':'#e6dcd0','--text':'#1c1612','--muted':'#7a6c5d',
+      '--gain':'#2f7a48','--loss':'#b54a3c','--focus':'#9a6b32',
+      '--c-us':'#2f6aa8','--c-in':'#c46a18','--c-bcash':'#2f7a48','--c-bank':'#7a4ca8','--c-pf':'#9a6b32','--c-other':'#b44a6a',
+      '--s1':'#2f6aa8','--s2':'#c46a18','--s3':'#2f7a48','--s4':'#b44a6a','--s5':'#9a6b32','--s6':'#7a4ca8','--s7':'#1a8a8a','--s8':'#b54a3c'
+    }
+  },
+  ink: {
+    label: 'Ink',
+    dark: {
+      '--bg':'#0c0c0c','--surface':'#161616','--line':'#2a2a2a','--text':'#f2f2f2','--muted':'#8a8a8a',
+      '--gain':'#5cbf94','--loss':'#e07070','--focus':'#c9a227',
+      '--c-us':'#7d9ec9','--c-in':'#c9a05a','--c-bcash':'#6fba98','--c-bank':'#9b8ec9','--c-pf':'#c9a227','--c-other':'#c98aa0',
+      '--s1':'#7d9ec9','--s2':'#c9a05a','--s3':'#6fba98','--s4':'#c98aa0','--s5':'#c9a227','--s6':'#9b8ec9','--s7':'#6ab0b8','--s8':'#e07070'
+    },
+    light: {
+      '--bg':'#f6f6f6','--surface':'#ffffff','--line':'#e2e2e2','--text':'#111111','--muted':'#6a6a6a',
+      '--gain':'#1a7a56','--loss':'#c13b3b','--focus':'#8a7010',
+      '--c-us':'#3a5a8a','--c-in':'#b07818','--c-bcash':'#2a7a58','--c-bank':'#6a4a9a','--c-pf':'#8a7010','--c-other':'#a04068',
+      '--s1':'#3a5a8a','--s2':'#b07818','--s3':'#2a7a58','--s4':'#a04068','--s5':'#8a7010','--s6':'#6a4a9a','--s7':'#1a7080','--s8':'#c13b3b'
+    }
+  }
+};
+
+const defaults = () => ({
+  settings: { base: 'INR', backend: '', fxManual: null, fxManualAt: 0, mask: false, theme: 'forest', mode: null },
+  us: [], in: [], bcash: [], bank: [], pf: [], other: [],
+  cache: { quotes: {} }
+});
+const merge = r => {
+  const d = defaults();
+  return { ...d, ...r, settings: { ...d.settings, ...(r.settings || {}) }, cache: { quotes: {}, ...(r.cache || {}) } };
+};
+const load = () => { try { const r = JSON.parse(localStorage.getItem(KEY)); if (r) return merge(r); } catch (e) {} return defaults(); };
+let S = load();
+const remote = { on: false, state: 'off', timer: null };   // state: off | saving | saved | error
+
+function resolveMode() {
+  if (S.settings.mode === 'light' || S.settings.mode === 'dark') return S.settings.mode;
+  return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+}
+function applyTheme() {
+  const name = THEMES[S.settings.theme] ? S.settings.theme : 'forest';
+  const mode = resolveMode();
+  const pal = THEMES[name][mode];
+  const root = document.documentElement;
+  Object.entries(pal).forEach(([k, v]) => root.style.setProperty(k, v));
+  root.style.colorScheme = mode;
+}
+
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {}
+  if (!remote.on) return;
+  remote.state = 'saving';
+  updateSyncNote();
+  clearTimeout(remote.timer);
+  remote.timer = setTimeout(pushRemote, 400);
+}
+function dataForServer() {
+  const { cache, ...data } = S;
+  data.settings = { ...S.settings };
+  delete data.settings.backend;          // the server address stays per browser
+  return data;
+}
+async function pushRemote() {
+  try {
+    const r = await fetch(apiBase() + '/api/data', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(dataForServer()) });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    remote.state = 'saved';
+  } catch (e) { remote.state = 'error'; }
+  updateSyncNote();
+}
+function syncText() {
+  return { off: '', saving: 'Saving…', saved: '', error: 'Could not save to data.json' }[remote.state];
+}
+function updateSyncNote() { const el = document.getElementById('sync'); if (el) el.textContent = syncText(); }
+async function syncFromServer() {
+  remote.on = false; remote.state = 'off';
+  try {
+    const r = await fetch(apiBase() + '/api/data');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    remote.on = true;
+    if (d.exists && d.data) {                       // the file on disk is the source of truth
+      const cache = S.cache, backend = S.settings.backend;
+      S = merge(d.data); S.cache = cache; S.settings.backend = backend;
+      try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {}
+      remote.state = 'saved';
+    } else if (KEYS_COUNT() > 0) {                  // first run with the file: move browser data into it
+      remote.state = 'saving'; pushRemote();
+    } else remote.state = 'saved';
+  } catch (e) { remote.on = false; remote.state = 'off'; }
+}
+const KEYS_COUNT = () => ['us', 'in', 'bcash', 'bank', 'pf', 'other'].reduce((a, k) => a + S[k].length, 0);
+
+let live = {};                       // symbol -> live quote from the server
+let status = { state: 'loading' };
+let tab = 'overview';
+let introDone = false;
+let editing = null;
+
+const CAT = {
+  us:    { name: 'US stocks',     color: '--c-us',    tab: 'us' },
+  in:    { name: 'Indian stocks', color: '--c-in',    tab: 'in' },
+  bcash: { name: 'Broker cash',   color: '--c-bcash', tab: 'cash' },
+  bank:  { name: 'Bank cash',     color: '--c-bank',  tab: 'cash' },
+  pf:    { name: 'Employee PF',   color: '--c-pf',    tab: 'pf' },
+  other: { name: 'Other',         color: '--c-other', tab: 'other' }
+};
+const KEYS = Object.keys(CAT);
+const SRC = { live: 'live', manual: 'fallback', last: 'last known', cost: 'no price' };
+
+/* ---------- live quotes ---------- */
+function apiBase() {
+  const b = (S.settings.backend || '').trim();
+  if (b) return b.replace(/\/$/, '');
+  return location.protocol === 'file:' ? 'http://localhost:8787' : '';
+}
+function ySym(kind, h) {
+  const s = (h.symbol || '').trim().toUpperCase();
+  if (!s) return '';
+  if (kind === 'in') return /\.(NS|BO)$/.test(s) ? s : s + (h.exchange === 'BSE' ? '.BO' : '.NS');
+  return s;
+}
+function allSymbols() {
+  const set = new Set(['USDINR=X']);
+  ['us', 'in', 'other'].forEach(k => S[k].forEach(h => { const s = ySym(k, h); if (s) set.add(s); }));
+  return [...set];
+}
+async function loadQuotes() {
+  status = { state: 'loading' };
+  render();
+  const syms = allSymbols();
+  try {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 20000);
+    const r = await fetch(apiBase() + '/api/quotes?symbols=' + encodeURIComponent(syms.join(',')), { signal: ctl.signal });
+    clearTimeout(timer);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    live = {};
+    const bad = [];
+    for (const s of syms) {
+      const q = d.quotes && d.quotes[s];
+      if (q && q.price != null) { live[s] = q; S.cache.quotes[s] = { price: q.price, at: Date.now() }; }
+      else bad.push(s);
+    }
+    save();
+    status = bad.length === syms.length
+      ? { state: 'offline', msg: 'The server answered, but Yahoo returned no quotes. Check your internet connection.' }
+      : { state: bad.length ? 'partial' : 'live', at: new Date(), bad };
+  } catch (e) {
+    live = {};
+    status = { state: 'offline', msg: 'Price server not reachable.' };
+  }
+  render();
+}
+
+/* pick the best available price: live, else newest of fallback / last known, else none */
+function pick(sym, manual, manualAt) {
+  const l = live[sym];
+  if (l && l.price != null) return { p: l.price, prev: l.prev, src: 'live' };
+  const c = [];
+  if (manual != null && manual !== '') c.push({ p: +manual, prev: null, src: 'manual', at: manualAt || 0 });
+  const k = S.cache.quotes[sym];
+  if (k) c.push({ p: k.price, prev: null, src: 'last', at: k.at });
+  c.sort((a, b) => b.at - a.at);
+  return c[0] || null;
+}
+function fxInfo() {
+  const pr = pick('USDINR=X', S.settings.fxManual, S.settings.fxManualAt);
+  return pr && pr.p > 0 ? { rate: pr.p, src: pr.src } : { rate: 85, src: 'cost' };
+}
+
+/* ---------- calculations ---------- */
+function compute() {
+  const base = S.settings.base;
+  const fx = fxInfo();
+  const conv = (v, cur) => cur === base ? v : (base === 'INR' ? v * fx.rate : v / fx.rate);
+
+  const stocks = (kind, cur) => S[kind].map(h => {
+    const sym = ySym(kind, h);
+    const pr = sym ? pick(sym, h.manualPrice, h.manualAt) : null;
+    const price = pr ? pr.p : null;
+    const cost = (h.qty || 0) * (h.avg || 0);
+    const value = price != null ? (h.qty || 0) * price : cost;
+    const pnl = value - cost;
+    const day = pr && pr.src === 'live' && pr.prev != null ? (h.qty || 0) * (price - pr.prev) : null;
+    return { ...h, cur, sym, price, src: pr ? pr.src : 'cost', cost, value, pnl,
+      pnlPct: cost ? pnl / cost * 100 : null,
+      valueBase: conv(value, cur), costBase: conv(cost, cur), pnlBase: conv(pnl, cur),
+      dayBase: day != null ? conv(day, cur) : null };
+  });
+  const cash = kind => S[kind].map(h => ({ ...h, cur: h.currency, value: h.balance || 0, valueBase: conv(h.balance || 0, h.currency) }));
+  const pf = S.pf.map(h => ({ ...h, cur: 'INR', value: h.balance || 0, valueBase: conv(h.balance || 0, 'INR') }));
+  const other = S.other.map(h => {
+    const sym = ySym('other', h);
+    let price = null, src = 'manual', value = h.value || 0, day = null;
+    if (sym) {
+      const pr = pick(sym, h.price, h.priceAt);
+      if (pr) {
+        price = pr.p; src = pr.src; value = (h.qty || 0) * pr.p;
+        if (pr.src === 'live' && pr.prev != null) day = (h.qty || 0) * (pr.p - pr.prev);
+      } else { src = 'cost'; }
+    }
+    return { ...h, cur: h.currency, sym, price, src, value, valueBase: conv(value, h.currency), dayBase: day != null ? conv(day, h.currency) : null };
+  });
+
+  const cats = { us: { items: stocks('us', 'USD') }, in: { items: stocks('in', 'INR') },
+    bcash: { items: cash('bcash') }, bank: { items: cash('bank') }, pf: { items: pf }, other: { items: other } };
+  let net = 0, day = 0, hasDay = false;
+  for (const k of KEYS) {
+    const c = cats[k];
+    c.total = c.items.reduce((a, h) => a + h.valueBase, 0);
+    c.pnl = c.items.reduce((a, h) => a + (h.pnlBase || 0), 0);
+    c.hasPnl = k === 'us' || k === 'in';
+    net += c.total;
+    c.items.forEach(h => { if (h.dayBase != null) { day += h.dayBase; hasDay = true; } });
+  }
+  return { base, fx, conv, cats, net, day, hasDay, count: KEYS.reduce((a, k) => a + cats[k].items.length, 0) };
+}
+
+/* ---------- formatting ---------- */
+const money = (v, cur, dec = 0) => new Intl.NumberFormat(cur === 'INR' ? 'en-IN' : 'en-US',
+  { style: 'currency', currency: cur, minimumFractionDigits: dec, maximumFractionDigits: dec }).format(v);
+const M = (v, cur, dec = 0) => `<span class="num">${money(v, cur, dec)}</span>`;
+const Sg = (v, cur, dec = 0) => `<span class="num">${v >= 0 ? '+' : '−'}${money(Math.abs(v), cur, dec)}</span>`;
+const pct = v => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(2)}%`;
+const cls = v => v > 0.0000001 ? 'gain' : v < -0.0000001 ? 'loss' : '';
+const qty = v => {
+  const n = Number(v) || 0;
+  const max = Math.abs(n) >= 10 ? 2 : 4;
+  return new Intl.NumberFormat('en-US', { maximumFractionDigits: max }).format(n);
+};
+function compact(v, cur) {
+  if (cur === 'INR') {
+    const a = Math.abs(v), s = v < 0 ? '−' : '';
+    if (a >= 1e7) return `${s}₹${(a / 1e7).toFixed(2)} Cr`;
+    if (a >= 1e5) return `${s}₹${(a / 1e5).toFixed(2)} L`;
+    return money(v, 'INR');
+  }
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', notation: 'compact', maximumFractionDigits: 2 }).format(v);
+}
+function groupBy(items, key) {
+  const m = [];
+  const ix = new Map();
+  for (const h of items) {
+    const name = (h[key] || '').trim() || 'Unnamed';
+    if (!ix.has(name)) { ix.set(name, m.length); m.push([name, []]); }
+    m[ix.get(name)][1].push(h);
+  }
+  m.sort((a, b) => b[1].reduce((s, h) => s + h.valueBase, 0) - a[1].reduce((s, h) => s + h.valueBase, 0));
+  return m;
+}
+
+function foldSlices(parts, max = 7) {
+  const pos = parts.filter(p => p.value > 0).sort((a, b) => b.value - a.value);
+  if (pos.length <= max) return pos;
+  const head = pos.slice(0, max - 1);
+  const rest = pos.slice(max - 1);
+  head.push({ name: 'Other', value: rest.reduce((s, p) => s + p.value, 0), color: 'var(--muted)' });
+  return head;
+}
+function donut(parts, opt = {}) {
+  let slices = foldSlices(parts, opt.max || 7);
+  const total = slices.reduce((a, p) => a + p.value, 0);
+  if (slices.length < 2 || total <= 0) return '';
+  slices = slices.map((p, i) => ({
+    ...p,
+    color: p.color || `var(--s${(i % 8) + 1})`
+  }));
+  const size = opt.size || 168;
+  const sw = opt.sw || Math.max(14, Math.round(size * 0.13));
+  const r = size / 2 - sw / 2 - 1;
+  const circ = 2 * Math.PI * r;
+  const gap = slices.length > 1 ? Math.min(7, circ * 0.02) : 0;
+  const usable = Math.max(circ - gap * slices.length, 1);
+  const cx = size / 2, cy = size / 2;
+  let at = 0;
+  const rings = slices.map(p => {
+    const len = (p.value / total) * usable;
+    const node = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${p.color}" stroke-width="${sw}"
+      stroke-dasharray="${len.toFixed(3)} ${circ.toFixed(3)}" stroke-dashoffset="${(-at).toFixed(3)}"
+      transform="rotate(-90 ${cx} ${cy})"><title>${esc(p.name)} ${(p.value / total * 100).toFixed(1)}%</title></circle>`;
+    at += len + gap;
+    return node;
+  });
+  const top = slices[0];
+  const label = `Allocation: ${slices.map(p => `${p.name} ${(p.value / total * 100).toFixed(0)}%`).join(', ')}`;
+  return `<div class="donut${opt.intro ? ' intro' : ''}" role="img" aria-label="${esc(label)}" style="width:${size}px;height:${size}px">
+    <svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" aria-hidden="true">${rings.join('')}</svg>
+    <div class="donut-hole"><strong class="num">${(top.value / total * 100).toFixed(0)}%</strong><span>${esc(top.name)}</span></div>
+  </div>`;
+}
+function namedParts(items, nameFn) {
+  return items.map(h => ({ name: nameFn(h), value: h.valueBase || 0 }));
+}
+
+/* ---------- views ---------- */
+function statusBar() {
+  const s = status;
+  let short = 'Fetching…', title = 'Fetching live prices';
+  if (s.state === 'live') {
+    short = `Live · ${s.at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+    title = 'Live prices. Click to refresh.';
+  } else if (s.state === 'partial') {
+    short = `Partial · ${s.bad.length} missing`;
+    title = `No quote for ${s.bad.join(', ')}. Using fallback prices. Click to refresh.`;
+  } else if (s.state === 'offline') {
+    short = 'Offline';
+    title = `${s.msg} Showing fallback or last known prices. Click to retry.`;
+  } else if (s.state === 'loading') {
+    short = 'Fetching…';
+    title = 'Fetching live prices';
+  }
+  const sync = syncText();
+  return `<div class="status ${s.state}" role="status">
+    <i class="dot"></i>
+    <button class="lnk" data-act="refresh" title="${esc(title)}">${esc(short)}</button>
+    ${sync ? `<span id="sync">${esc(sync)}</span>` : '<span id="sync"></span>'}
+  </div>`;
+}
+
+function hero(c, compactHero) {
+  const other = c.base === 'INR' ? 'USD' : 'INR';
+  const otherVal = compact(c.base === 'INR' ? c.net / c.fx.rate : c.net * c.fx.rate, other);
+  const fxLabel = { live: 'live', manual: 'your fallback rate', last: 'last known', cost: 'default, set yours in Settings' }[c.fx.src];
+  const dayPct = c.net - c.day ? c.day / (c.net - c.day) * 100 : 0;
+  const hide = !!S.settings.mask;
+  const totalEl = hide
+    ? `<h1 class="total veil" aria-hidden="true">••••</h1>`
+    : `<h1 class="total num">${money(c.net, c.base)}</h1>`;
+  const otherEl = hide
+    ? `<span class="veil-sub" aria-hidden="true">••••</span>`
+    : `<span class="num">≈ ${otherVal}</span>`;
+  const day = c.hasDay ? `<p class="day ${cls(c.day)}">${Sg(c.day, c.base)} <span class="num">(${pct(dayPct)})</span></p>` : '';
+  if (compactHero) {
+    return `<section class="hero compact">
+      ${totalEl}
+      ${day}
+      <div class="sub">${otherEl}<span>1 USD = ₹${c.fx.rate.toFixed(2)}</span></div>
+    </section>`;
+  }
+  return `<section class="hero">
+    <p class="hero-label">Total net worth</p>
+    ${totalEl}
+    <div class="sub">${otherEl}<span>1 USD = ₹${c.fx.rate.toFixed(2)} (${fxLabel})</span></div>
+    ${c.hasDay ? `<p class="day ${cls(c.day)}">Market moves today: ${Sg(c.day, c.base)} <span class="num">(${pct(dayPct)})</span></p>` : ''}
+  </section>`;
+}
+
+function viewOverview(c) {
+  if (!c.count) {
+    return `<div class="start"><h2>Start with your first holding</h2>
+      <p>Add stocks, cash balances, PF and other assets in the tabs. Prices and the USD/INR rate load automatically while the price server is running.</p>
+      <div class="row"><button class="btn" data-act="tab" data-tab="us">Add US stocks</button>
+      <button class="btn ghost" data-act="sample">Load sample data</button></div></div>`;
+  }
+  const segs = KEYS.filter(k => c.cats[k].total > 0);
+  const mix = donut(segs.map(k => ({ name: CAT[k].name, value: c.cats[k].total, color: `var(${CAT[k].color})` })),
+    { size: 196, sw: 24, intro: !introDone });
+  const rows = KEYS.map(k => {
+    const x = c.cats[k];
+    return `<button class="cat" data-act="tab" data-tab="${CAT[k].tab}">
+      <i class="sw" style="background:var(${CAT[k].color})"></i>
+      <span class="cn">${CAT[k].name}</span>
+      <span class="cv">${M(x.total, c.base)}</span>
+      <span class="cp"><span class="num">${c.net ? (x.total / c.net * 100).toFixed(1) : '0.0'}%</span></span>
+      <span class="cg ${cls(x.pnl)}">${x.hasPnl && x.items.length ? Sg(x.pnl, c.base) : ''}</span></button>`;
+  }).join('');
+
+  const g = {};
+  const add = (name, key, v) => { name = (name || '').trim() || 'Unnamed'; (g[name] = g[name] || { stocks: 0, cash: 0 })[key] += v; };
+  c.cats.us.items.forEach(h => add(h.broker, 'stocks', h.valueBase));
+  c.cats.in.items.forEach(h => add(h.broker, 'stocks', h.valueBase));
+  c.cats.bcash.items.forEach(h => add(h.broker, 'cash', h.valueBase));
+  c.cats.bank.items.forEach(h => add(h.bank, 'cash', h.valueBase));
+  const inst = Object.entries(g).map(([n, v]) => ({ n, ...v, t: v.stocks + v.cash })).sort((a, b) => b.t - a.t);
+  const instDonut = donut(inst.map(i => ({ name: i.n, value: i.t })));
+  const instTable = table([{ h: 'Institution' }, { h: 'Stocks', r: 1 }, { h: 'Cash', r: 1 }, { h: 'Total', r: 1 }, { h: 'Share of net worth', r: 1 }],
+    inst.map(i => `<tr><td>${esc(i.n)}</td><td class="r">${M(i.stocks, c.base)}</td><td class="r">${M(i.cash, c.base)}</td>
+      <td class="r"><b class="num">${money(i.t, c.base)}</b></td><td class="r"><span class="num">${(i.t / c.net * 100).toFixed(1)}%</span></td></tr>`), 'No brokers or banks yet.', 'wide');
+
+  return `<div class="split">${mix}<div class="cats">${rows}</div></div>
+    <div class="block" style="margin-top:44px"><div class="head"><h2>By institution</h2></div>
+    <div class="split">${instDonut}${instTable}</div></div>`;
+}
+
+function table(cols, rows, empty, kind) {
+  if (!rows.length) return `<p class="empty">${empty}</p>`;
+  const head = cols && cols.length
+    ? `<thead><tr>${cols.map(c => `<th class="${c.r ? 'r' : ''}">${c.h}</th>`).join('')}</tr></thead>`
+    : '';
+  return `<div class="tw"><table class="${kind === 'wide' ? 'wide' : ''}">${head}<tbody>${rows.join('')}</tbody></table></div>`;
+}
+const acts = (k, id, extra = '') => `<td class="r act">${extra}<button class="lnk" data-act="edit" data-k="${k}" data-id="${id}">Edit</button><button class="lnk del" data-act="del" data-k="${k}" data-id="${id}">Delete</button></td>`;
+const head = (title, total, k, label) => `<div class="head"><h2>${title}</h2><span class="tot">${total}</span><button class="btn" data-act="add" data-k="${k}">${label}</button></div>`;
+const srcNote = h => h.src && h.src !== 'live' ? `<span class="src src-${h.src}">${SRC[h.src]}</span>` : '';
+
+function viewStocks(kind, c) {
+  const x = c.cats[kind];
+  const cur = kind === 'us' ? 'USD' : 'INR';
+  const mix = donut(namedParts(x.items, h => h.symbol || 'Unnamed'), { size: 148 });
+  const groups = groupBy(x.items, 'broker');
+  const blocks = groups.map(([name, items], i) => {
+    const sub = items.reduce((a, h) => a + h.valueBase, 0);
+    const rows = items.map(h => {
+      const px = h.price != null ? money(h.price, cur, 2) : '—';
+      const meta = `${qty(h.qty)} × ${px} · avg ${money(h.avg, cur, 2)}${kind === 'in' ? ' · ' + (h.exchange || 'NSE') : ''}`;
+      return `<tr>
+        <td><b>${esc(h.symbol)}</b><span class="meta num">${esc(meta)}</span>${srcNote(h)}</td>
+        <td class="r">${M(h.value, cur)}</td>
+        <td class="r ${cls(h.pnl)}">${Sg(h.pnl, cur)}<small class="num">${h.pnlPct != null ? pct(h.pnlPct) : ''}</small></td>
+        ${acts(kind, h.id)}</tr>`;
+    });
+    return `<div class="ghead"><h3>${esc(name)}</h3><span class="tot">${M(sub, c.base)}</span></div>
+      ${table(i ? null : [{ h: 'Holding' }, { h: 'Value', r: 1 }, { h: 'P&L', r: 1 }, { h: '' }], rows, '')}`;
+  }).join('');
+  return `<div class="block">${head(CAT[kind].name, `Total <b>${M(x.total, c.base)}</b> · <span class="${cls(x.pnl)}">${Sg(x.pnl, c.base)}</span>`, kind, 'Add holding')}
+    ${mix ? `<div class="sub-alloc">${mix}</div>` : ''}
+    ${x.items.length ? blocks : '<p class="empty">No holdings yet. Add one to see it here.</p>'}</div>`;
+}
+
+function viewCash(c) {
+  const top = donut([
+    { name: 'Broker cash', value: c.cats.bcash.total, color: 'var(--c-bcash)' },
+    { name: 'Bank cash', value: c.cats.bank.total, color: 'var(--c-bank)' }
+  ], { size: 148 });
+  const mk = (kind, name, nameKey) => {
+    const x = c.cats[kind];
+    const mix = donut(namedParts(x.items, h => (h[nameKey] || 'Unnamed') + (kind === 'bank' && h.account ? ' · ' + h.account : '')), { size: 132 });
+    const rows = x.items.map(h => `<tr><td>${esc(h[nameKey])}${kind === 'bank' && h.account ? `<small>${esc(h.account)}</small>` : ''}</td><td>${esc(h.currency)}</td>
+      <td class="r">${M(h.balance || 0, h.currency)}</td><td class="r">${h.currency === c.base ? '' : M(h.valueBase, c.base)}</td>${acts(kind, h.id)}</tr>`);
+    return `<div class="block">${head(name, `Total <b>${M(x.total, c.base)}</b>`, kind, kind === 'bcash' ? 'Add broker cash' : 'Add account')}
+      ${mix ? `<div class="sub-alloc">${mix}</div>` : ''}
+      ${table([{ h: kind === 'bcash' ? 'Broker' : 'Bank' }, { h: 'Currency' }, { h: 'Balance', r: 1 }, { h: `In ${c.base}`, r: 1 }, { h: '' }], rows, 'Nothing here yet.')}</div>`;
+  };
+  return (top ? `<div class="sub-alloc">${top}</div>` : '') + mk('bcash', 'Broker cash', 'broker') + mk('bank', 'Bank accounts', 'bank');
+}
+
+function viewPF(c) {
+  const x = c.cats.pf;
+  const mix = donut(namedParts(x.items, h => h.label || 'Unnamed'), { size: 148 });
+  const rows = x.items.map(h => `<tr><td>${esc(h.label)}</td><td class="r">${M(h.balance || 0, 'INR')}</td><td class="r">${c.base === 'INR' ? '' : M(h.valueBase, c.base)}</td>
+    ${acts('pf', h.id, `<button class="lnk" data-act="contrib" data-id="${h.id}">Add contribution</button>`)}</tr>`);
+  const logs = x.items.filter(h => (h.log || []).length).map(h => `<div class="block"><h3>${esc(h.label)}: recent contributions</h3>
+    <ul class="log">${h.log.slice(-6).reverse().map(l => `<li><span>${esc(l.month)}</span><span class="num">${money(l.amount, 'INR')}</span></li>`).join('')}</ul></div>`).join('');
+  return `<div class="block">${head('Employee PF', `Total <b>${M(x.total, c.base)}</b>`, 'pf', 'Add PF account')}
+    ${mix ? `<div class="sub-alloc">${mix}</div>` : ''}
+    ${table([{ h: 'Account' }, { h: 'Balance', r: 1 }, { h: `In ${c.base}`, r: 1 }, { h: '' }], rows, 'No PF account yet.')}
+    <p class="note">Adding a contribution increases the balance and keeps a monthly log. Edit the balance directly to record interest credits.</p></div>${logs}`;
+}
+
+function viewOther(c) {
+  const x = c.cats.other;
+  const mix = donut(namedParts(x.items, h => h.label || 'Unnamed'), { size: 148 });
+  const rows = x.items.map(h => `<tr><td>${esc(h.label)}</td>
+    <td>${h.sym ? `<b>${esc(h.sym)}</b><small>${qty(h.qty)} units</small>` : '<span class="src">manual value</span>'}</td>
+    <td class="r">${h.price != null ? M(h.price, h.cur, 2) + srcNote(h) : '—'}</td>
+    <td class="r">${M(h.value, h.cur)}</td><td class="r">${h.cur === c.base ? '' : M(h.valueBase, c.base)}</td>${acts('other', h.id)}</tr>`);
+  return `<div class="block">${head('Other assets', `Total <b>${M(x.total, c.base)}</b>`, 'other', 'Add asset')}
+    ${mix ? `<div class="sub-alloc">${mix}</div>` : ''}
+    ${table([{ h: 'Name' }, { h: 'Live symbol' }, { h: 'Price', r: 1 }, { h: 'Value', r: 1 }, { h: `In ${c.base}`, r: 1 }, { h: '' }], rows, 'Nothing here yet.')}</div>`;
+}
+
+function themePicker() {
+  const mode = resolveMode();
+  const cur = THEMES[S.settings.theme] ? S.settings.theme : 'forest';
+  return `<div class="field" style="max-width:none"><span class="label">Color</span>
+    <div class="themes">${Object.entries(THEMES).map(([id, t]) => {
+      const p = t[mode];
+      return `<button type="button" class="theme-btn" data-act="theme" data-theme="${id}" aria-pressed="${id === cur}">
+        <span class="chips" aria-hidden="true"><i style="background:${p['--bg']}"></i><i style="background:${p['--c-us']}"></i><i style="background:${p['--c-bcash']}"></i><i style="background:${p['--text']}"></i></span>
+        ${esc(t.label)}</button>`;
+    }).join('')}</div>
+    <span class="hint">Each colorway has a light and dark version. Use Light/Dark in the header to switch.</span></div>`;
+}
+
+function viewSettings() {
+  return `<div class="block"><h2 style="margin-bottom:18px">Settings</h2>
+    ${themePicker()}
+    <div class="field"><label for="s-backend">Price server address</label>
+      <input id="s-backend" data-set="backend" value="${esc(S.settings.backend)}" placeholder="Leave empty when the server hosts this page">
+      <span class="hint">Only needed if you open this file directly instead of through the server. The default then is http://localhost:8787.</span></div>
+    <div class="field"><label for="s-fx">Fallback USD/INR rate</label>
+      <input id="s-fx" data-set="fx" type="number" step="any" value="${S.settings.fxManual ?? ''}" placeholder="e.g. 88.00">
+      <span class="hint">Used when the live rate can't be fetched.</span></div>
+  </div>
+  <div class="block"><h3 style="margin-bottom:10px">Your data</h3>
+    <p class="note" style="margin:0 0 14px">While the price server is running, your holdings are saved to <b>data.json</b> next to server.py, with a daily copy kept in data-backups. Without the server they are kept in this browser only. You can also export a backup file.</p>
+    <div class="row"><button class="btn ghost" data-act="export">Export backup</button><button class="btn ghost" data-act="import">Import backup</button>
+    <button class="btn ghost" data-act="reset">Erase all data</button></div></div>`;
+}
+
+const TABS = [['overview', 'Overview'], ['us', 'US stocks'], ['in', 'Indian stocks'], ['cash', 'Cash'], ['pf', 'PF'], ['other', 'Other']];
+
+function render() {
+  applyTheme();
+  document.body.classList.toggle('masked', !!S.settings.mask);
+  const c = compute();
+  const mode = resolveMode();
+  const panel = { overview: () => viewOverview(c), us: () => viewStocks('us', c), in: () => viewStocks('in', c),
+    cash: () => viewCash(c), pf: () => viewPF(c), other: () => viewOther(c), settings: viewSettings }[tab]();
+  const heroHtml = tab === 'settings' ? '' : hero(c, tab !== 'overview');
+  $('#app').innerHTML = `
+    <header>
+      <div class="top"><div><span class="brand">Net worth</span>${statusBar()}</div>
+        <div class="tools">
+          <button class="icon-btn" data-act="mode" aria-pressed="${mode === 'dark'}">${mode === 'dark' ? 'Dark' : 'Light'}</button>
+          <button class="icon-btn" data-act="mask" aria-pressed="${!!S.settings.mask}">${S.settings.mask ? 'Amounts hidden' : 'Hide amounts'}</button>
+          <div class="seg-ctl" role="group" aria-label="Display currency">
+            <button data-act="base" data-cur="INR" aria-pressed="${c.base === 'INR'}">INR</button>
+            <button data-act="base" data-cur="USD" aria-pressed="${c.base === 'USD'}">USD</button></div>
+          <button class="icon-btn" data-act="tab" data-tab="settings" aria-pressed="${tab === 'settings'}">Settings</button>
+        </div></div>
+      <nav class="tabs" role="tablist">${TABS.map(([k, n]) => `<button role="tab" data-act="tab" data-tab="${k}" aria-selected="${tab === k}">${n}</button>`).join('')}</nav>
+    </header>
+    ${heroHtml}
+    <main class="panel${tab === 'overview' ? '' : ' tight'}" role="tabpanel">${panel}</main>`;
+  if (tab === 'overview' && c.count) introDone = true;
+}
+
+/* ---------- forms ---------- */
+const brokerF = { k: 'broker', label: 'Broker', type: 'text', req: 1, list: 'brokers', ph: 'e.g. Interactive Brokers' };
+const curF = { k: 'currency', label: 'Currency', type: 'select', opts: ['USD', 'INR'] };
+const FORMS = {
+  us: { title: 'US stock', hint: 'Use the ticker as it appears on Yahoo Finance, for example AAPL or BRK-B.', fields: [brokerF,
+    { k: 'symbol', label: 'Ticker', type: 'text', req: 1, upper: 1, ph: 'AAPL' },
+    { k: 'qty', label: 'Quantity', type: 'number', req: 1 },
+    { k: 'avg', label: 'Average buy price (USD)', type: 'number', req: 1 },
+    { k: 'manualPrice', label: 'Fallback price (USD)', type: 'number', adv: 1, hint: 'Used only when live prices are unavailable.' }] },
+  in: { title: 'Indian stock', hint: 'Enter the plain symbol, for example RELIANCE. The .NS or .BO suffix is added from the exchange you pick.', fields: [brokerF,
+    { k: 'symbol', label: 'Symbol', type: 'text', req: 1, upper: 1, ph: 'RELIANCE' },
+    { k: 'exchange', label: 'Exchange', type: 'select', opts: ['NSE', 'BSE'] },
+    { k: 'qty', label: 'Quantity', type: 'number', req: 1 },
+    { k: 'avg', label: 'Average buy price (INR)', type: 'number', req: 1 },
+    { k: 'manualPrice', label: 'Fallback price (INR)', type: 'number', adv: 1, hint: 'Used only when live prices are unavailable.' }] },
+  bcash: { title: 'Broker cash', fields: [brokerF, curF, { k: 'balance', label: 'Balance', type: 'number', req: 1 }] },
+  bank: { title: 'Bank account', fields: [
+    { k: 'bank', label: 'Bank', type: 'text', req: 1, ph: 'e.g. HDFC Bank' },
+    { k: 'account', label: 'Account name', type: 'text', ph: 'Savings' }, curF,
+    { k: 'balance', label: 'Balance', type: 'number', req: 1 }] },
+  pf: { title: 'PF account', fields: [
+    { k: 'label', label: 'Account name', type: 'text', req: 1, ph: 'EPF, current employer' },
+    { k: 'balance', label: 'Balance (INR)', type: 'number', req: 1 }] },
+  other: { title: 'Other asset', hint: 'Crypto with a Yahoo symbol such as BTC-USD updates live. Choose the currency the symbol is quoted in.', fields: [
+    { k: 'label', label: 'Name', type: 'text', req: 1, ph: 'e.g. Bitcoin on Coinbase' }, curF,
+    { k: 'symbol', label: 'Live symbol (optional)', type: 'text', upper: 1, ph: 'BTC-USD' },
+    { k: 'qty', label: 'Quantity (with symbol)', type: 'number' },
+    { k: 'value', label: 'Value (without symbol)', type: 'number', hint: 'Enter a value directly if there is no live symbol.' },
+    { k: 'price', label: 'Fallback price (with symbol)', type: 'number', adv: 1, hint: 'Used only when live prices are unavailable.' }] },
+  contrib: { title: 'PF contribution', fields: [
+    { k: 'month', label: 'Month', type: 'month', req: 1 },
+    { k: 'amount', label: 'Amount (INR)', type: 'number', req: 1 }] }
+};
+const DEF = { bank: { currency: 'INR' }, bcash: { currency: 'USD' }, other: { currency: 'USD' }, in: { exchange: 'NSE' } };
+
+function fieldHtml(f, val) {
+  const v = val[f.k] ?? '';
+  const input = f.type === 'select'
+    ? `<select id="f-${f.k}" name="${f.k}">${f.opts.map(o => `<option ${o === v ? 'selected' : ''}>${o}</option>`).join('')}</select>`
+    : `<input id="f-${f.k}" name="${f.k}" type="${f.type}" ${f.type === 'number' ? 'step="any"' : ''} value="${esc(v)}" ${f.list ? `list="${f.list}"` : ''} ${f.ph ? `placeholder="${esc(f.ph)}"` : ''} ${f.req ? 'required' : ''}>`;
+  return `<div class="field"><label for="f-${f.k}">${f.label}</label>${input}${f.hint ? `<span class="hint">${f.hint}</span>` : ''}</div>`;
+}
+
+function openForm(kind, id) {
+  const F = FORMS[kind];
+  let val = {};
+  if (kind === 'contrib') val = { month: new Date().toISOString().slice(0, 7) };
+  else if (id) val = S[kind].find(x => x.id === id) || {};
+  else val = { ...(DEF[kind] || {}) };
+  editing = { kind, id };
+  const names = new Set();
+  ['us', 'in', 'bcash'].forEach(k => S[k].forEach(h => h.broker && names.add(h.broker)));
+  $('#brokers').innerHTML = [...names].map(n => `<option value="${esc(n)}">`).join('');
+  const title = kind === 'contrib' ? F.title : `${id ? 'Edit' : 'Add'} ${F.title}`;
+  const main = F.fields.filter(f => !f.adv);
+  const adv = F.fields.filter(f => f.adv);
+  const advOpen = adv.some(f => val[f.k] != null && val[f.k] !== '');
+  $('#frm').innerHTML = `<h2 id="dlg-title" style="margin-bottom:16px">${title}</h2>`
+    + main.map(f => fieldHtml(f, val)).join('')
+    + (F.hint ? `<p class="hint">${F.hint}</p>` : '')
+    + (adv.length ? `<details class="adv"${advOpen ? ' open' : ''}><summary>Fallback price</summary>${adv.map(f => fieldHtml(f, val)).join('')}</details>` : '')
+    + `<p class="err" id="ferr" role="alert"></p><div class="actions"><button type="button" class="btn ghost" data-act="cancel">Cancel</button><button type="submit" class="btn">Save</button></div>`;
+  $('#dlg').showModal();
+  const first = $('#frm input, #frm select'); if (first) first.focus();
+}
+
+$('#frm').addEventListener('submit', e => {
+  e.preventDefault();
+  const { kind, id } = editing;
+  const F = FORMS[kind];
+  const fd = new FormData(e.target);
+  const o = {};
+  for (const f of F.fields) {
+    let v = String(fd.get(f.k) ?? '').trim();
+    if (f.type === 'number') o[f.k] = v === '' ? null : parseFloat(v);
+    else o[f.k] = f.upper ? v.toUpperCase() : v;
+  }
+  const err = m => { $('#ferr').textContent = m; };
+
+  if (kind === 'contrib') {
+    const h = S.pf.find(x => x.id === id);
+    h.balance = (h.balance || 0) + o.amount;
+    h.log = (h.log || []).concat({ month: o.month, amount: o.amount });
+  } else {
+    if (kind === 'other' && !(o.symbol && o.qty != null) && o.value == null) return err('Enter a live symbol with a quantity, or a value.');
+    const prev = id ? S[kind].find(x => x.id === id) : null;
+    if (kind === 'us' || kind === 'in' || kind === 'other') {
+      const mk = kind === 'other' ? 'price' : 'manualPrice', ak = kind === 'other' ? 'priceAt' : 'manualAt';
+      if (o[mk] == null) o[ak] = 0;
+      else o[ak] = prev && prev[mk] === o[mk] ? (prev[ak] || 0) : Date.now();
+    }
+    if (prev) Object.assign(prev, o); else S[kind].push({ id: uid(), ...o });
+  }
+  save();
+  $('#dlg').close();
+  if (['us', 'in', 'other'].includes(kind)) loadQuotes(); else render();
+});
+
+/* ---------- actions ---------- */
+function sample() {
+  S.us.push({ id: uid(), broker: 'Sample Broker US', symbol: 'AAPL', qty: 10, avg: 170, manualPrice: null, manualAt: 0 },
+            { id: uid(), broker: 'Sample Broker US', symbol: 'MSFT', qty: 5, avg: 320, manualPrice: null, manualAt: 0 });
+  S.in.push({ id: uid(), broker: 'Sample Broker IN', symbol: 'RELIANCE', exchange: 'NSE', qty: 50, avg: 2400, manualPrice: null, manualAt: 0 },
+            { id: uid(), broker: 'Sample Broker IN', symbol: 'TCS', exchange: 'NSE', qty: 20, avg: 3300, manualPrice: null, manualAt: 0 });
+  S.bcash.push({ id: uid(), broker: 'Sample Broker US', currency: 'USD', balance: 1500 });
+  S.bank.push({ id: uid(), bank: 'Sample Bank', account: 'Savings', currency: 'INR', balance: 350000 });
+  S.pf.push({ id: uid(), label: 'Sample EPF', balance: 800000, log: [] });
+  S.other.push({ id: uid(), label: 'Sample Bitcoin', currency: 'USD', symbol: 'BTC-USD', qty: 0.05, price: null, priceAt: 0, value: null });
+  save(); loadQuotes();
+}
+function download(name, text) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+  a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-act]');
+  if (!t) return;
+  const act = t.dataset.act, k = t.dataset.k, id = t.dataset.id;
+  if (act === 'tab') { tab = t.dataset.tab; render(); window.scrollTo({ top: 0 }); }
+  else if (act === 'base') { S.settings.base = t.dataset.cur; save(); render(); }
+  else if (act === 'mask') { S.settings.mask = !S.settings.mask; save(); render(); }
+  else if (act === 'mode') { S.settings.mode = resolveMode() === 'dark' ? 'light' : 'dark'; save(); render(); }
+  else if (act === 'theme') { S.settings.theme = t.dataset.theme; save(); render(); }
+  else if (act === 'refresh') loadQuotes();
+  else if (act === 'add') openForm(k);
+  else if (act === 'edit') openForm(k, id);
+  else if (act === 'contrib') openForm('contrib', id);
+  else if (act === 'cancel') $('#dlg').close();
+  else if (act === 'del') {
+    if (confirm('Delete this entry?')) { S[k] = S[k].filter(x => x.id !== id); save(); render(); }
+  }
+  else if (act === 'sample') sample();
+  else if (act === 'export') {
+    const { cache, ...data } = S;
+    download(`networth-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(data, null, 2));
+  }
+  else if (act === 'import') $('#file').click();
+  else if (act === 'reset') {
+    if (confirm('Erase all holdings and settings from this browser? Export a backup first if unsure.')) {
+      try { localStorage.removeItem(KEY); } catch (e) {}
+      S = defaults(); live = {}; save(); render(); loadQuotes();
+    }
+  }
+});
+
+document.addEventListener('change', e => {
+  const t = e.target;
+  if (t.dataset.set === 'backend') { remote.on = false; S.settings.backend = t.value.trim(); save(); syncFromServer().then(loadQuotes); }
+  if (t.dataset.set === 'fx') {
+    const v = parseFloat(t.value);
+    S.settings.fxManual = isNaN(v) ? null : v; S.settings.fxManualAt = Date.now(); save(); render();
+  }
+});
+
+$('#file').addEventListener('change', e => {
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      const d = JSON.parse(r.result);
+      if (!d || typeof d !== 'object' || !('us' in d || 'bank' in d || 'settings' in d)) throw new Error('bad file');
+      const cache = S.cache;
+      S = merge(d); S.cache = cache; save(); loadQuotes();
+    } catch (err) { alert('That file is not a valid backup from this tracker.'); }
+    e.target.value = '';
+  };
+  r.readAsText(f);
+});
+
+applyTheme();
+render();
+syncFromServer().then(loadQuotes);
+})();
+</script>
+</body>
+</html>
