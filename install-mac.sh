@@ -32,7 +32,7 @@ xml_escape() {
   printf '%s' "$s"
 }
 
-mkdir -p "$HOME/Library/LaunchAgents"
+mkdir -p "$HOME/Library/LaunchAgents" "$DIR/logs"
 cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -54,8 +54,8 @@ cat > "$PLIST" <<EOF
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>/tmp/networth-tracker.log</string>
-  <key>StandardErrorPath</key><string>/tmp/networth-tracker.log</string>
+  <key>StandardOutPath</key><string>$(xml_escape "$DIR/logs/launchd.log")</string>
+  <key>StandardErrorPath</key><string>$(xml_escape "$DIR/logs/launchd.log")</string>
 </dict>
 </plist>
 EOF
@@ -65,5 +65,5 @@ launchctl bootout "gui/$(id -u)" "$PLIST" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
 
 echo "Installed. The tracker is running at http://localhost:$PORT"
-echo "Logs: /tmp/networth-tracker.log"
+echo "Logs: $DIR/logs/server.log (crashes, if any: $DIR/logs/launchd.log)"
 echo "To remove it later: ./uninstall-mac.sh"

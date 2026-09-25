@@ -2,6 +2,10 @@
 data.json
 data.json.tmp
 data-backups/
+history.jsonl
+history.jsonl.tmp
+logs/
 
 .DS_Store
 *.tmp
+__pycache__/

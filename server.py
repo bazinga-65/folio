@@ -2,8 +2,9 @@
 """
 Net worth tracker: price server.
 
-Fetches live quotes from Yahoo Finance, serves the dashboard (index.html), and
-stores your holdings in data.json next to this file.
+Fetches live quotes from Yahoo Finance, serves the dashboard (index.html),
+stores your holdings in data.json next to this file, and records your net
+worth once a day in history.jsonl.
 No third-party packages needed. Python 3.8+.
 
 Run:   python3 server.py
@@ -13,20 +14,29 @@ Options (environment variables):
   PORT=8787        port to listen on
   HOST=127.0.0.1   interface to bind (keep the default unless you know why)
   DATA_FILE=...    where holdings are stored (default: data.json next to server.py)
+  HISTORY_FILE=... daily net worth records (default: history.jsonl next to DATA_FILE)
+  LOG_DIR=...      where server.log is written (default: logs/ next to server.py)
 """
 import ipaddress
 import json
 import datetime
+import logging
 import os
 import re
 import shutil
+import socket
 import sys
 import threading
 import time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from logging.handlers import RotatingFileHandler
+from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, quote, urlparse
 from urllib.request import Request, urlopen
+
+from history import History
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 HOST = os.environ.get("HOST", "127.0.0.1")
@@ -41,20 +51,31 @@ SYMBOL_RE = re.compile(r"^[A-Za-z0-9.^=&_\-]{1,24}$")
 CACHE_TTL = 20  # seconds; stops rapid refreshes from hammering Yahoo
 ERROR_TTL = 15  # seconds; a failed symbol is not fetched again on every refresh
 QUOTE_DEADLINE = 16  # seconds for the whole batch; the page stops waiting at 20
-HOST_TIMEOUT = 8
+HOST_TIMEOUT = 4  # a healthy answer takes well under a second
+HOST_COOLDOWN = 30  # seconds a host that timed out or was unreachable is skipped
+SLOW_BATCH = 5  # seconds; a batch slower than this is logged even when it succeeds
 MAX_SYMBOLS = 100
-LIST_KEYS = ("us", "in", "bcash", "bank", "pf", "other")
+LIST_KEYS = ("us", "in", "bcash", "bank", "hand", "pf", "other")
 DAILY_BACKUP_RE = re.compile(r"^data-\d{4}-\d{2}-\d{2}\.json$")
 VERSION_BACKUP_RE = re.compile(r"^data-v-\d{8}T\d{6}(?:-\d+)?\.json$")
 
 DATA_FILE = os.environ.get("DATA_FILE", os.path.join(HERE, "data.json"))
 BACKUP_DIR = os.path.join(os.path.dirname(os.path.abspath(DATA_FILE)), "data-backups")
+HISTORY_FILE = os.environ.get("HISTORY_FILE", os.path.join(os.path.dirname(os.path.abspath(DATA_FILE)), "history.jsonl"))
+LOG_DIR = os.environ.get("LOG_DIR", os.path.join(HERE, "logs"))
+LOG_FILE = os.path.join(LOG_DIR, "server.log")
 MAX_BODY = 5 * 1024 * 1024
 KEEP_BACKUPS = 30
 
 _cache = {}
 _cache_lock = threading.Lock()
 _data_lock = threading.Lock()
+_host_down_until = {}
+_host_lock = threading.Lock()
+_batch_lock = threading.Lock()
+_batch_state = {"failing": False, "symbol_errors": {}}
+_log = logging.getLogger("folio")
+HISTORY = None
 
 
 class RevConflict(Exception):
@@ -62,8 +83,27 @@ class RevConflict(Exception):
         self.rev = rev
 
 
+def setup_logging():
+    """server.log in LOG_DIR, rotated at 1 MB. Also the terminal when run by hand;
+    under launchd stderr is logs/launchd.log, which then only gets crashes."""
+    _log.setLevel(logging.INFO)
+    _log.propagate = False
+    fmt = logging.Formatter("%(asctime)s %(message)s", "%Y-%m-%dT%H:%M:%S")
+    handlers = []
+    try:
+        os.makedirs(LOG_DIR, exist_ok=True)
+        handlers.append(RotatingFileHandler(LOG_FILE, maxBytes=1_000_000, backupCount=3, encoding="utf-8"))
+    except OSError as exc:
+        print(f"Could not write {LOG_FILE} ({exc}); logging to the terminal only.", file=sys.stderr)
+    if sys.stderr.isatty() or not handlers:
+        handlers.append(logging.StreamHandler(sys.stderr))
+    for h in handlers:
+        h.setFormatter(fmt)
+        _log.addHandler(h)
+
+
 def log_line(msg):
-    print(f"{datetime.datetime.now().isoformat(timespec='seconds')} {msg}", file=sys.stderr, flush=True)
+    _log.info(msg)
 
 
 def _unwrap(stored):
@@ -158,72 +198,150 @@ def _cache_put(sym, payload, ttl):
         _cache[sym] = (time.monotonic(), payload, ttl)
 
 
-def fetch_symbol(sym, deadline):
-    hit = _cache_get(sym)
-    if hit is not None:
-        return hit
-    if time.monotonic() >= deadline:
-        return {"error": "quote deadline exceeded"}
+def _host_ok(host):
+    with _host_lock:
+        return time.monotonic() >= _host_down_until.get(host, 0)
 
-    last_error = "unknown error"
+
+def _host_failed(host):
+    """Skip this host for a while, so one that hangs (for example just after
+    the Mac wakes, before the network is back) cannot use up a whole batch."""
+    with _host_lock:
+        _host_down_until[host] = time.monotonic() + HOST_COOLDOWN
+
+
+def _short(exc):
+    return str(exc).split("\n", 1)[0][:200]
+
+
+def _chart_error(exc):
+    try:
+        return ((json.loads(exc.read()).get("chart") or {}).get("error") or {}).get("description") or ""
+    except Exception:
+        return ""
+
+
+def yahoo_chart(sym, query, deadline):
+    """Fetch one chart from the first healthy Yahoo host that answers.
+    Returns (result, None) or (None, (kind, message)), where kind is:
+      symbol    Yahoo has no data for this symbol; retrying will not help
+      http      Yahoo answered with an error status (rate limit, outage)
+      timeout   a host did not answer within HOST_TIMEOUT
+      network   a host could not be reached (DNS, refused, reset)
+      offline   every host failed within HOST_COOLDOWN, so none was tried
+      deadline  the batch ran out of time before this symbol was tried"""
+    err = None
     for host in YAHOO_HOSTS:
+        if not _host_ok(host):
+            continue
         remaining = deadline - time.monotonic()
         if remaining < 0.5:
-            last_error = "quote deadline exceeded"
-            break
-        url = f"https://{host}/v8/finance/chart/{quote(sym)}?interval=1d&range=5d"
+            return None, err or ("deadline", "not tried before the batch deadline")
+        url = f"https://{host}/v8/finance/chart/{quote(sym)}?{query}"
         try:
             req = Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
             with urlopen(req, timeout=min(HOST_TIMEOUT, remaining)) as resp:
                 data = json.load(resp)
+        except HTTPError as exc:
+            desc = _chart_error(exc)
+            if exc.code == 404:
+                return None, ("symbol", desc or "symbol not found")
+            err = ("http", f"HTTP {exc.code} from {host}" + (f": {desc}" if desc else ""))
+            continue
+        except URLError as exc:
+            _host_failed(host)
+            if isinstance(exc.reason, socket.timeout):
+                err = ("timeout", f"{host} did not answer in {HOST_TIMEOUT}s")
+            else:
+                err = ("network", f"{host}: {_short(exc.reason)}")
+            continue
+        except socket.timeout:
+            _host_failed(host)
+            err = ("timeout", f"{host} stopped answering mid-response")
+            continue
+        except ValueError as exc:
+            err = ("http", f"{host}: unreadable response ({_short(exc)})")
+            continue
+        except OSError as exc:
+            _host_failed(host)
+            err = ("network", f"{host}: {_short(exc)}")
+            continue
+        chart = data.get("chart") or {}
+        result = (chart.get("result") or [None])[0]
+        if not result:
+            return None, ("symbol", (chart.get("error") or {}).get("description") or "symbol not found")
+        return result, None
+    return None, err or ("offline", f"every Yahoo host failed in the last {HOST_COOLDOWN}s")
 
-            result = (data.get("chart", {}).get("result") or [None])[0]
-            if not result:
-                err = data.get("chart", {}).get("error") or {}
-                last_error = err.get("description", "symbol not found")
-                continue
 
-            meta = result.get("meta", {})
-            price = meta.get("regularMarketPrice")
-            if price is None:
-                last_error = "no price in response"
-                continue
+def fetch_symbol(sym, deadline):
+    hit = _cache_get(sym)
+    if hit is not None:
+        return hit
+    result, err = yahoo_chart(sym, "interval=1d&range=5d", deadline)
+    if err is None:
+        meta = result.get("meta", {})
+        price = meta.get("regularMarketPrice")
+        if price is None:
+            err = ("symbol", "no price in response")
+    if err:
+        out = {"error": err[1], "kind": err[0]}
+        if err[0] in ("symbol", "http"):
+            _cache_put(sym, out, ERROR_TTL)
+        return out
 
-            quotes = (result.get("indicators", {}).get("quote") or [{}])[0]
-            closes = [c for c in (quotes.get("close") or []) if c is not None]
-            # Previous session close = second-to-last daily bar.
-            prev = closes[-2] if len(closes) >= 2 else (
-                meta.get("previousClose") or meta.get("chartPreviousClose")
-            )
-
-            out = {
-                "price": price,
-                "prev": prev,
-                "currency": meta.get("currency"),
-                "name": meta.get("shortName") or meta.get("longName"),
-                "exchange": meta.get("exchangeName"),
-                "time": meta.get("regularMarketTime"),
-            }
-            _cache_put(sym, out, CACHE_TTL)
-            return out
-        except Exception as exc:  # network error, bad JSON, HTTP error
-            last_error = str(exc).split("\n", 1)[0][:200]
-
-    if last_error == "quote deadline exceeded":
-        return {"error": last_error}
-    log_line(f"quote {sym}: {last_error}")
-    out = {"error": last_error}
-    _cache_put(sym, out, ERROR_TTL)
+    quotes = (result.get("indicators", {}).get("quote") or [{}])[0]
+    closes = [c for c in (quotes.get("close") or []) if c is not None]
+    # Previous session close = second-to-last daily bar.
+    prev = closes[-2] if len(closes) >= 2 else (
+        meta.get("previousClose") or meta.get("chartPreviousClose")
+    )
+    out = {
+        "price": price,
+        "prev": prev,
+        "currency": meta.get("currency"),
+        "name": meta.get("shortName") or meta.get("longName"),
+        "exchange": meta.get("exchangeName"),
+        "time": meta.get("regularMarketTime"),
+    }
+    _cache_put(sym, out, CACHE_TTL)
     return out
 
 
+def _log_batch(symbols, results, elapsed):
+    """One line per batch that failed or was slow, one when quotes recover, and
+    one per symbol whose own error (e.g. a delisted ticker) is new."""
+    failed = []
+    with _batch_lock:
+        seen = _batch_state["symbol_errors"]
+        for sym, r in zip(symbols, results):
+            kind = r.get("kind")
+            if kind == "symbol":
+                if seen.get(sym) != r["error"]:
+                    seen[sym] = r["error"]
+                    log_line(f"quote {sym}: {r['error']}")
+            else:
+                seen.pop(sym, None)
+                if kind:
+                    failed.append((sym, r))
+        was_failing = _batch_state["failing"]
+        _batch_state["failing"] = bool(failed)
+    if failed:
+        kinds = ", ".join(f"{k} {n}" for k, n in Counter(r["kind"] for _, r in failed).most_common())
+        sym, r = next(((s, r) for s, r in failed if r["kind"] not in ("offline", "deadline")), failed[0])
+        log_line(f"quotes: {len(failed)}/{len(symbols)} failed in {elapsed:.1f}s ({kinds}); e.g. {sym}: {r['error']}")
+    elif was_failing:
+        log_line(f"quotes: recovered, {len(symbols)} ok in {elapsed:.1f}s")
+    elif elapsed > SLOW_BATCH:
+        log_line(f"quotes: slow, {len(symbols)} ok in {elapsed:.1f}s")
+
+
 def fetch_many(symbols):
-    deadline = time.monotonic() + QUOTE_DEADLINE
+    start = time.monotonic()
+    deadline = start + QUOTE_DEADLINE
     with ThreadPoolExecutor(max_workers=8) as pool:
         results = list(pool.map(lambda sym: fetch_symbol(sym, deadline), symbols))
-    late = sum(1 for item in results if item.get("error") == "quote deadline exceeded")
-    if late:
-        log_line(f"quotes: deadline, {late} symbol(s) not fetched")
+    _log_batch(symbols, results, time.monotonic() - start)
     return dict(zip(symbols, results))
 
 
@@ -281,8 +399,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_OPTIONS(self):
         self.send_response(204)
-        if not self.path.startswith("/api/data"):
-            self._cors()  # quotes are public data; holdings never get CORS headers
+        if not self.path.startswith(("/api/data", "/api/history")):
+            self._cors()  # quotes are public data; holdings and history never get CORS headers
         self.end_headers()
 
     def do_PUT(self):
@@ -312,6 +430,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(500, {"error": f"could not read data file: {exc}"}, cors=False)
         except OSError as exc:
             return self._json(500, {"error": f"could not write data file: {exc}"}, cors=False)
+        if HISTORY:
+            HISTORY.kick()
         self._json(200, {"ok": True, "rev": rev}, cors=False)
 
     def do_GET(self):
@@ -328,6 +448,12 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError, OSError) as exc:
                 return self._json(500, {"error": f"could not read data file: {exc}"}, cors=False)
             return self._json(200, {"exists": data is not None, "data": data, "rev": rev}, cors=False)
+
+        if url.path == "/api/history":
+            if not self._local_only_ok():
+                return self._json(403, {"error": "forbidden"}, cors=False)
+            days = HISTORY.summary() if HISTORY else []
+            return self._json(200, {"days": days}, cors=False)
 
         if url.path == "/api/quotes":
             raw = parse_qs(url.query).get("symbols", [""])[0]
@@ -351,11 +477,22 @@ class Handler(BaseHTTPRequestHandler):
         self._json(404, {"error": "not found"})
 
 
+def _portfolio_or_none():
+    try:
+        return read_stored()[0]
+    except (ValueError, OSError) as exc:
+        log_line(f"history: could not read {DATA_FILE}: {exc}")
+        return None
+
+
 if __name__ == "__main__":
+    setup_logging()
     httpd = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f"Net worth tracker running at http://localhost:{PORT}  (Ctrl+C to stop)", flush=True)
-    print(f"Holdings are stored in {DATA_FILE}", flush=True)
+    log_line(f"Net worth tracker running at http://localhost:{PORT} (pid {os.getpid()}, Python {sys.version.split()[0]})")
+    log_line(f"Holdings: {DATA_FILE}  History: {HISTORY_FILE}  Log: {LOG_FILE}")
+    HISTORY = History(HISTORY_FILE, BACKUP_DIR, _portfolio_or_none, yahoo_chart, log_line)
+    HISTORY.start()
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopped.")
+        log_line("Stopped.")
