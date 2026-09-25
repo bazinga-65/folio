@@ -1,5 +1,7 @@
 # Net worth tracker
 
+![Overview of holdings, allocation, and today's moves](screenshot.png)
+
 1. Install Python 3.8+ (no other packages needed).
 2. In this folder run: `python3 server.py`
 3. Open http://localhost:8787
