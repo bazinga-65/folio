@@ -19,7 +19,7 @@ Tip: keep this folder somewhere like ~/networth-tracker rather than Desktop, Doc
 
 ## Where your data lives
 While the server is running, holdings are saved to `data.json` next to `server.py` (change with DATA_FILE=/path/file.json).
-The first save each day also keeps a copy of the previous file in `data-backups/` (last 30 days).
+The first save each day keeps a copy of the previous file in `data-backups/` (last 30 days). Every save also keeps the file it replaced (last 30 saves). A browser that is behind another save is asked to reload the file instead of overwriting it.
 To move to a new computer, copy `data.json`. It contains your financial details, so keep the folder private.
 If you open the dashboard without the server, data is kept in that browser only.
 Edits to index.html take effect on refresh. After editing server.py, restart it:

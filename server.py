@@ -14,11 +14,13 @@ Options (environment variables):
   HOST=127.0.0.1   interface to bind (keep the default unless you know why)
   DATA_FILE=...    where holdings are stored (default: data.json next to server.py)
 """
+import ipaddress
 import json
 import datetime
 import os
 import re
 import shutil
+import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -37,7 +39,13 @@ USER_AGENT = (
 )
 SYMBOL_RE = re.compile(r"^[A-Za-z0-9.^=&_\-]{1,24}$")
 CACHE_TTL = 20  # seconds; stops rapid refreshes from hammering Yahoo
+ERROR_TTL = 15  # seconds; a failed symbol is not fetched again on every refresh
+QUOTE_DEADLINE = 16  # seconds for the whole batch; the page stops waiting at 20
+HOST_TIMEOUT = 8
 MAX_SYMBOLS = 100
+LIST_KEYS = ("us", "in", "bcash", "bank", "pf", "other")
+DAILY_BACKUP_RE = re.compile(r"^data-\d{4}-\d{2}-\d{2}\.json$")
+VERSION_BACKUP_RE = re.compile(r"^data-v-\d{8}T\d{6}(?:-\d+)?\.json$")
 
 DATA_FILE = os.environ.get("DATA_FILE", os.path.join(HERE, "data.json"))
 BACKUP_DIR = os.path.join(os.path.dirname(os.path.abspath(DATA_FILE)), "data-backups")
@@ -45,52 +53,128 @@ MAX_BODY = 5 * 1024 * 1024
 KEEP_BACKUPS = 30
 
 _cache = {}
+_cache_lock = threading.Lock()
 _data_lock = threading.Lock()
 
 
-def read_data():
-    """Return the stored object, or None if there is no data file yet.
+class RevConflict(Exception):
+    def __init__(self, rev):
+        self.rev = rev
+
+
+def log_line(msg):
+    print(f"{datetime.datetime.now().isoformat(timespec='seconds')} {msg}", file=sys.stderr, flush=True)
+
+
+def _unwrap(stored):
+    """Return (portfolio, rev). Older files are the portfolio itself, at rev 1."""
+    if (
+        isinstance(stored, dict)
+        and isinstance(stored.get("rev"), int)
+        and isinstance(stored.get("portfolio"), dict)
+    ):
+        return stored["portfolio"], stored["rev"]
+    return stored, 1
+
+
+def read_stored():
+    """Return (portfolio, rev). portfolio is None when the file does not exist yet.
     A corrupt file raises, so the dashboard never overwrites it by mistake."""
     try:
         with open(DATA_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+            stored = json.load(f)
     except FileNotFoundError:
-        return None
+        return None, 0
+    if not isinstance(stored, dict):
+        raise ValueError("data file is not a JSON object")
+    return _unwrap(stored)
 
 
-def write_data(obj):
+def validate_portfolio(obj):
+    if not isinstance(obj, dict):
+        raise ValueError("expected a JSON object")
+    if not isinstance(obj.get("settings"), dict):
+        raise ValueError("expected a settings object")
+    for key in LIST_KEYS:
+        if key in obj and not isinstance(obj[key], list):
+            raise ValueError(f"expected {key} to be a list")
+
+
+def _prune(names, pattern):
+    matched = sorted(name for name in names if pattern.match(name))
+    for old in matched[:-KEEP_BACKUPS]:
+        try:
+            os.remove(os.path.join(BACKUP_DIR, old))
+        except OSError:
+            pass
+
+
+def _backup_current():
+    os.makedirs(BACKUP_DIR, exist_ok=True)
+    day = os.path.join(BACKUP_DIR, f"data-{datetime.date.today().isoformat()}.json")
+    if not os.path.exists(day):
+        shutil.copy2(DATA_FILE, day)
+    stamp = datetime.datetime.now().strftime("%Y%m%dT%H%M%S")
+    version = os.path.join(BACKUP_DIR, f"data-v-{stamp}.json")
+    n = 2
+    while os.path.exists(version):
+        version = os.path.join(BACKUP_DIR, f"data-v-{stamp}-{n}.json")
+        n += 1
+    shutil.copy2(DATA_FILE, version)
+    names = os.listdir(BACKUP_DIR)
+    _prune(names, DAILY_BACKUP_RE)
+    _prune(names, VERSION_BACKUP_RE)
+
+
+def write_data(obj, expected_rev):
+    """Replace the file only when expected_rev is the rev currently on disk.
+    Returns the new rev. Raises RevConflict when another save landed first."""
+    validate_portfolio(obj)
     with _data_lock:
-        # Keep one copy per day of what was there before the first save that day.
-        if os.path.exists(DATA_FILE):
-            os.makedirs(BACKUP_DIR, exist_ok=True)
-            dest = os.path.join(BACKUP_DIR, f"data-{datetime.date.today().isoformat()}.json")
-            if not os.path.exists(dest):
-                shutil.copy2(DATA_FILE, dest)
-            for old in sorted(os.listdir(BACKUP_DIR))[:-KEEP_BACKUPS]:
-                try:
-                    os.remove(os.path.join(BACKUP_DIR, old))
-                except OSError:
-                    pass
+        current, rev = read_stored()
+        if expected_rev != rev:
+            raise RevConflict(rev)
+        if current is not None:
+            _backup_current()
         tmp = DATA_FILE + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(obj, f, indent=2)
+            json.dump({"rev": rev + 1, "portfolio": obj}, f, indent=2)
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp, DATA_FILE)  # atomic: never leaves a half-written file
+        return rev + 1
 
 
-def fetch_symbol(sym):
-    now = time.time()
-    hit = _cache.get(sym)
-    if hit and now - hit[0] < CACHE_TTL:
-        return hit[1]
+def _cache_get(sym):
+    with _cache_lock:
+        hit = _cache.get(sym)
+        if hit and time.monotonic() - hit[0] < hit[2]:
+            return hit[1]
+    return None
+
+
+def _cache_put(sym, payload, ttl):
+    with _cache_lock:
+        _cache[sym] = (time.monotonic(), payload, ttl)
+
+
+def fetch_symbol(sym, deadline):
+    hit = _cache_get(sym)
+    if hit is not None:
+        return hit
+    if time.monotonic() >= deadline:
+        return {"error": "quote deadline exceeded"}
 
     last_error = "unknown error"
     for host in YAHOO_HOSTS:
+        remaining = deadline - time.monotonic()
+        if remaining < 0.5:
+            last_error = "quote deadline exceeded"
+            break
         url = f"https://{host}/v8/finance/chart/{quote(sym)}?interval=1d&range=5d"
         try:
             req = Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
-            with urlopen(req, timeout=10) as resp:
+            with urlopen(req, timeout=min(HOST_TIMEOUT, remaining)) as resp:
                 data = json.load(resp)
 
             result = (data.get("chart", {}).get("result") or [None])[0]
@@ -120,17 +204,26 @@ def fetch_symbol(sym):
                 "exchange": meta.get("exchangeName"),
                 "time": meta.get("regularMarketTime"),
             }
-            _cache[sym] = (now, out)
+            _cache_put(sym, out, CACHE_TTL)
             return out
         except Exception as exc:  # network error, bad JSON, HTTP error
-            last_error = str(exc)
+            last_error = str(exc).split("\n", 1)[0][:200]
 
-    return {"error": last_error}
+    if last_error == "quote deadline exceeded":
+        return {"error": last_error}
+    log_line(f"quote {sym}: {last_error}")
+    out = {"error": last_error}
+    _cache_put(sym, out, ERROR_TTL)
+    return out
 
 
 def fetch_many(symbols):
+    deadline = time.monotonic() + QUOTE_DEADLINE
     with ThreadPoolExecutor(max_workers=8) as pool:
-        results = list(pool.map(fetch_symbol, symbols))
+        results = list(pool.map(lambda sym: fetch_symbol(sym, deadline), symbols))
+    late = sum(1 for item in results if item.get("error") == "quote deadline exceeded")
+    if late:
+        log_line(f"quotes: deadline, {late} symbol(s) not fetched")
     return dict(zip(symbols, results))
 
 
@@ -145,14 +238,33 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
 
+    def _peer_is_loopback(self):
+        ip = self.client_address[0]
+        if ip.startswith("::ffff:"):
+            ip = ip[7:]
+        try:
+            return ipaddress.ip_address(ip).is_loopback
+        except ValueError:
+            return False
+
     def _local_only_ok(self):
-        """Holdings are private: only pages served by this server may read or
-        write them (blocks other websites and DNS-rebinding tricks)."""
-        hosts = {f"localhost:{PORT}", f"127.0.0.1:{PORT}", f"{HOST}:{PORT}"}
+        """Holdings are private: the connection itself must be from this
+        machine, and the page must be one this server served (blocks other
+        websites and DNS-rebinding tricks). A widened HOST cannot spoof this
+        with a Host header."""
+        if not self._peer_is_loopback():
+            return False
+        hosts = {f"localhost:{PORT}", f"127.0.0.1:{PORT}", f"[::1]:{PORT}", f"{HOST}:{PORT}"}
         if self.headers.get("Host", "") not in hosts:
             return False
         origin = self.headers.get("Origin")
         return not origin or origin in {f"http://{h}" for h in hosts}
+
+    def _if_match(self):
+        raw = self.headers.get("If-Match", "").strip().strip('"')
+        if not raw.isdigit():
+            return None
+        return int(raw)
 
     def _send(self, code, body, ctype, cors=True):
         self.send_response(code)
@@ -184,17 +296,23 @@ class Handler(BaseHTTPRequestHandler):
             length = 0
         if length <= 0 or length > MAX_BODY:
             return self._json(413, {"error": "body missing or too large"}, cors=False)
+        expected = self._if_match()
+        if expected is None:
+            return self._json(428, {"error": "If-Match revision required"}, cors=False)
         try:
             obj = json.loads(self.rfile.read(length))
-            if not isinstance(obj, dict):
-                raise ValueError("expected a JSON object")
+            validate_portfolio(obj)
         except ValueError as exc:
             return self._json(400, {"error": f"invalid JSON: {exc}"}, cors=False)
         try:
-            write_data(obj)
+            rev = write_data(obj, expected)
+        except RevConflict as exc:
+            return self._json(409, {"error": "conflict", "rev": exc.rev}, cors=False)
+        except ValueError as exc:
+            return self._json(500, {"error": f"could not read data file: {exc}"}, cors=False)
         except OSError as exc:
             return self._json(500, {"error": f"could not write data file: {exc}"}, cors=False)
-        self._json(200, {"ok": True}, cors=False)
+        self._json(200, {"ok": True, "rev": rev}, cors=False)
 
     def do_GET(self):
         url = urlparse(self.path)
@@ -206,10 +324,10 @@ class Handler(BaseHTTPRequestHandler):
             if not self._local_only_ok():
                 return self._json(403, {"error": "forbidden"}, cors=False)
             try:
-                data = read_data()
+                data, rev = read_stored()
             except (ValueError, OSError) as exc:
                 return self._json(500, {"error": f"could not read data file: {exc}"}, cors=False)
-            return self._json(200, {"exists": data is not None, "data": data}, cors=False)
+            return self._json(200, {"exists": data is not None, "data": data, "rev": rev}, cors=False)
 
         if url.path == "/api/quotes":
             raw = parse_qs(url.query).get("symbols", [""])[0]
@@ -235,8 +353,8 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     httpd = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f"Net worth tracker running at http://localhost:{PORT}  (Ctrl+C to stop)")
-    print(f"Holdings are stored in {DATA_FILE}")
+    print(f"Net worth tracker running at http://localhost:{PORT}  (Ctrl+C to stop)", flush=True)
+    print(f"Holdings are stored in {DATA_FILE}", flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

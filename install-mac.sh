@@ -19,6 +19,19 @@ if [ ! -f "$DIR/server.py" ]; then
   exit 1
 fi
 
+# Resolve python3 from PATH at each start, so a Homebrew upgrade is picked up
+# without reinstalling. PYTHONUNBUFFERED makes the log file show lines while
+# the process stays up.
+PY_DIR="$(cd "$(dirname "$PY")" && pwd)"
+PATH_VALUE="$PY_DIR:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+xml_escape() {
+  local s="$1"
+  s=${s//&/&amp;}
+  s=${s//</&lt;}
+  s=${s//>/&gt;}
+  printf '%s' "$s"
+}
+
 mkdir -p "$HOME/Library/LaunchAgents"
 cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -28,12 +41,17 @@ cat > "$PLIST" <<EOF
   <key>Label</key><string>$LABEL</string>
   <key>ProgramArguments</key>
   <array>
-    <string>$PY</string>
-    <string>$DIR/server.py</string>
+    <string>/usr/bin/env</string>
+    <string>python3</string>
+    <string>$(xml_escape "$DIR/server.py")</string>
   </array>
-  <key>WorkingDirectory</key><string>$DIR</string>
+  <key>WorkingDirectory</key><string>$(xml_escape "$DIR")</string>
   <key>EnvironmentVariables</key>
-  <dict><key>PORT</key><string>$PORT</string></dict>
+  <dict>
+    <key>PORT</key><string>$(xml_escape "$PORT")</string>
+    <key>PYTHONUNBUFFERED</key><string>1</string>
+    <key>PATH</key><string>$(xml_escape "$PATH_VALUE")</string>
+  </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>StandardOutPath</key><string>/tmp/networth-tracker.log</string>
