@@ -23,7 +23,12 @@ from concurrent.futures import ThreadPoolExecutor
 
 LIST_KEYS = ("us", "in", "bcash", "bank", "hand", "pf", "other")
 PRICED = ("us", "in", "other")
-FX_FALLBACK = {"USDINR=X": 85.0, "USDTHB=X": 33.0}  # the dashboard's defaults
+# code, Yahoo symbol, history fx key, settings fallback field. Rates match index.html.
+EXTRA_FX = (
+    ("THB", "USDTHB=X", "USDTHB", "thbManual"),
+    ("AED", "USDAED=X", "USDAED", "aedManual"),
+)
+FX_FALLBACK = {"USDINR=X": 85.0, "USDTHB=X": 33.0, "USDAED=X": 3.67}  # the dashboard's defaults
 SETTLE_HOURS = 36  # from the start of a date: noon the next day
 GIVE_UP_DAYS = 7  # a date still missing prices after this keeps its best guess
 MAX_BACKFILL_DAYS = 400
@@ -103,8 +108,10 @@ def symbols_for(holdings):
             s = yahoo_symbol(kind, h)
             if s:
                 syms.add(s)
-    if any(h.get("currency") == "THB" for k in ("bcash", "bank", "hand", "other") for h in holdings.get(k) or []):
-        syms.add("USDTHB=X")
+    curs = {h.get("currency") for k in ("bcash", "bank", "hand", "other") for h in holdings.get(k) or []}
+    for code, sym, _key, _manual in EXTRA_FX:
+        if code in curs:
+            syms.add(sym)
     return syms
 
 
@@ -139,15 +146,19 @@ def value_day(day, holdings, settings, closes, prev, own=None):
             r = prev_fx.get(key) or (_num(manual) or None) or FX_FALLBACK[sym]
         return r
 
-    uses_thb = "USDTHB=X" in symbols_for(holdings)
+    held = symbols_for(holdings)
     usdinr = rate("USDINR=X", "USDINR", settings.get("fxManual"))
-    usdthb = rate("USDTHB=X", "USDTHB", settings.get("thbManual")) if uses_thb else None
+    extra_rates = {}
+    for code, sym, key, manual in EXTRA_FX:
+        if sym in held:
+            extra_rates[code] = (key, rate(sym, key, settings.get(manual)))
 
     def to_inr(v, cur):
         if cur == "USD":
             return v * usdinr
-        if cur == "THB":
-            return v / usdthb * usdinr
+        hit = extra_rates.get(cur)
+        if hit:
+            return v / hit[1] * usdinr
         return v  # INR, and anything unknown, as the dashboard treats it
 
     items, cats = [], {k: 0.0 for k in LIST_KEYS}
@@ -174,8 +185,8 @@ def value_day(day, holdings, settings, closes, prev, own=None):
             items.append(item)
 
     fx = {"USDINR": usdinr}
-    if uses_thb:
-        fx["USDTHB"] = usdthb
+    for _code, (key, r) in extra_rates.items():
+        fx[key] = r
     return {
         "date": day,
         "net": round(sum(cats.values()), 2),

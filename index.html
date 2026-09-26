@@ -127,7 +127,7 @@
   .loss { color: var(--loss); }
 
   .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
-  .charts { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 12px; margin-bottom: 12px; }
+  .charts { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 12px; }
   .lower { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
   .kpi, .card {
     background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 16px;
@@ -142,16 +142,32 @@
     letter-spacing: -.03em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere;
   }
   .kpi-sub { margin: 0; color: var(--muted); font-size: .8rem; }
-  .trend-head { display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; margin-bottom: 12px; }
-  .trend-head h3 { margin: 0 auto 0 0; }
-  .trend-chg { font-size: .84rem; font-variant-numeric: tabular-nums; color: var(--muted); }
+  .trend-head { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; margin-bottom: 12px; }
+  .trend-head h3 { margin: 0; }
+  .trend-head .seg-ctl { margin-left: auto; }
+  .trend-chg { flex: 1 0 100%; font-size: .8rem; font-variant-numeric: tabular-nums; color: var(--muted); }
   .seg-ctl.sm button { padding: 3px 10px; font-size: .76rem; }
   .trend-plot { position: relative; flex: 1; min-height: 150px; touch-action: pan-y; }
   .trend-plot svg { display: block; width: 100%; height: 100%; overflow: visible; }
   .trend-guide { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--muted); opacity: .35; pointer-events: none; }
   .trend-dot { position: absolute; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--surface); pointer-events: none; }
   .trend-guide[hidden], .trend-dot[hidden] { display: none; }
-  .trend-axis { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; color: var(--muted); font-size: .75rem; font-variant-numeric: tabular-nums; }
+  .trend-axis {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; margin-top: 8px;
+    color: var(--muted); font-size: .75rem; font-variant-numeric: tabular-nums;
+  }
+  .trend-axis span:nth-child(2) { grid-column: 1 / -1; grid-row: 2; text-align: center; }
+  .trend-axis span:nth-child(3) { text-align: right; }
+  .rates { list-style: none; margin: 0; padding: 0; }
+  .rates li {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px 12px;
+    padding: 10px 0; border-top: 1px solid var(--line);
+  }
+  .rates li:first-child { border-top: 0; padding-top: 0; }
+  .charts .card > .kpi-sub { margin: -8px 0 14px; }
+  .rates .code { font-weight: 600; }
+  .rates .src { display: block; margin: 1px 0 0; color: var(--muted); font-size: .75rem; }
+  .rates b { font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
   .charts .card { display: flex; flex-direction: column; }
   .mix { display: flex; align-items: center; gap: 8px 14px; flex: 1; }
   .legend { list-style: none; margin: 0; padding: 0; flex: 1; min-width: 108px; display: grid; gap: 0; }
@@ -448,7 +464,7 @@ const paletteId = mode => {
 };
 
 const defaults = () => ({
-  settings: { base: 'INR', backend: '', fxManual: null, fxManualAt: 0, thbManual: null, thbManualAt: 0, mask: false, mode: 'light', palette: { light: 'navy', dark: 'brass' } },
+  settings: { base: 'INR', backend: '', fxManual: null, fxManualAt: 0, thbManual: null, thbManualAt: 0, aedManual: null, aedManualAt: 0, mask: false, mode: 'light', palette: { light: 'navy', dark: 'brass' } },
   us: [], in: [], bcash: [], bank: [], hand: [], pf: [], other: [],
   cache: { quotes: {} }
 });
@@ -581,12 +597,20 @@ function ySym(kind, h) {
   if (kind === 'in') return /\.(NS|BO)$/.test(s) ? s : s + (h.exchange === 'BSE' ? '.BO' : '.NS');
   return s;
 }
-function usesThb() {
-  return ['bcash', 'bank', 'hand', 'other'].some(k => (S[k] || []).some(h => h.currency === 'THB'));
+const FX_EXTRA = {
+  THB: { sym: 'USDTHB=X', manual: 'thbManual', at: 'thbManualAt', fallback: 33, locale: 'th-TH', sign: '฿',
+    set: 'thb', field: 's-thb', label: 'Fallback USD/THB rate', ph: 'e.g. 32.50',
+    hint: 'Baht per US dollar. Used for THB cash when the live rate can\'t be fetched.' },
+  AED: { sym: 'USDAED=X', manual: 'aedManual', at: 'aedManualAt', fallback: 3.67, locale: 'en-AE', sign: 'AED ',
+    set: 'aed', field: 's-aed', label: 'Fallback USD/AED rate', ph: 'e.g. 3.67',
+    hint: 'Dirhams per US dollar. Used for AED cash when the live rate can\'t be fetched.' }
+};
+function usesCur(code) {
+  return ['bcash', 'bank', 'hand', 'other'].some(k => (S[k] || []).some(h => h.currency === code));
 }
 function allSymbols() {
   const set = new Set(['USDINR=X']);
-  if (usesThb()) set.add('USDTHB=X');
+  for (const [code, fx] of Object.entries(FX_EXTRA)) if (usesCur(code)) set.add(fx.sym);
   ['us', 'in', 'other'].forEach(k => S[k].forEach(h => { const s = ySym(k, h); if (s) set.add(s); }));
   return [...set];
 }
@@ -674,8 +698,11 @@ function fxPair(sym, manual, manualAt, fallback) {
 }
 function fxInfo() {
   const usdInr = fxPair('USDINR=X', S.settings.fxManual, S.settings.fxManualAt, 85);
-  const usdThb = fxPair('USDTHB=X', S.settings.thbManual, S.settings.thbManualAt, 33);
-  return { rate: usdInr.rate, src: usdInr.src, thb: usdThb.rate, thbSrc: usdThb.src };
+  const extra = {};
+  for (const [code, fx] of Object.entries(FX_EXTRA)) {
+    extra[code] = fxPair(fx.sym, S.settings[fx.manual], S.settings[fx.at], fx.fallback);
+  }
+  return { rate: usdInr.rate, src: usdInr.src, extra };
 }
 
 /* ---------- calculations ---------- */
@@ -687,7 +714,7 @@ function compute() {
     let usd;
     if (cur === 'USD') usd = v;
     else if (cur === 'INR') usd = v / fx.rate;
-    else if (cur === 'THB') usd = v / fx.thb;
+    else if (FX_EXTRA[cur]) usd = v / fx.extra[cur].rate;
     else usd = base === 'INR' ? v : v / fx.rate;
     return base === 'USD' ? usd : usd * fx.rate;
   };
@@ -731,12 +758,13 @@ function compute() {
     net += c.total;
     c.items.forEach(h => { if (h.dayBase != null) { day += h.dayBase; hasDay = true; } });
   }
-  const hasThb = usesThb();
-  return { base, fx, conv, cats, net, day, hasDay, hasThb, count: KEYS.reduce((a, k) => a + cats[k].items.length, 0) };
+  const hasExtra = {};
+  for (const code of Object.keys(FX_EXTRA)) hasExtra[code] = usesCur(code);
+  return { base, fx, conv, cats, net, day, hasDay, hasExtra, count: KEYS.reduce((a, k) => a + cats[k].items.length, 0) };
 }
 
 /* ---------- formatting ---------- */
-const money = (v, cur, dec = 0) => new Intl.NumberFormat(cur === 'INR' ? 'en-IN' : cur === 'THB' ? 'th-TH' : 'en-US',
+const money = (v, cur, dec = 0) => new Intl.NumberFormat((FX_EXTRA[cur] && FX_EXTRA[cur].locale) || (cur === 'INR' ? 'en-IN' : 'en-US'),
   { style: 'currency', currency: cur, minimumFractionDigits: dec, maximumFractionDigits: dec }).format(v);
 const M = (v, cur, dec = 0) => `<span class="num">${money(v, cur, dec)}</span>`;
 const Sg = (v, cur, dec = 0) => `<span class="num">${v >= 0 ? '+' : '−'}${money(Math.abs(v), cur, dec)}</span>`;
@@ -837,12 +865,15 @@ function statusBar() {
 function hero(c, short) {
   const other = c.base === 'INR' ? 'USD' : 'INR';
   const otherVal = compact(c.base === 'INR' ? c.net / c.fx.rate : c.net * c.fx.rate, other);
-  const fxLabel = { live: 'live', manual: 'your fallback rate', last: 'last known', cost: 'default, set yours in Settings' }[c.fx.src];
-  const thbLabel = { live: 'live', manual: 'your fallback rate', last: 'last known', cost: 'default, set yours in Settings' }[c.fx.thbSrc];
-  const thbBit = c.hasThb ? `<span>1 USD = ฿${c.fx.thb.toFixed(2)} (${thbLabel})</span>` : '';
+  const fxSrcLabel = { live: 'live', manual: 'your fallback rate', last: 'last known', cost: 'default, set yours in Settings' };
+  const fxLabel = fxSrcLabel[c.fx.src];
+  const extraBits = Object.entries(FX_EXTRA).filter(([code]) => c.hasExtra[code]).map(([code, meta]) => {
+    const info = c.fx.extra[code];
+    return `<span>1 USD = ${meta.sign}${info.rate.toFixed(2)} (${fxSrcLabel[info.src]})</span>`;
+  }).join('');
   const dayPct = c.net - c.day ? c.day / (c.net - c.day) * 100 : 0;
   const day = c.hasDay ? `<p class="day ${cls(c.day)}">Market moves today: ${Sg(c.day, c.base)} <span class="num">(${pct(dayPct)})</span></p>` : '';
-  const sub = short ? '' : `<div class="sub"><span class="num">≈ ${otherVal}</span><span>1 USD = ₹${c.fx.rate.toFixed(2)} (${fxLabel})</span>${thbBit}</div>`;
+  const sub = short ? '' : `<div class="sub"><span class="num">≈ ${otherVal}</span><span>1 USD = ₹${c.fx.rate.toFixed(2)} (${fxLabel})</span>${extraBits}</div>`;
   return `<section class="hero${short ? ' compact' : ''}">
     <p class="hero-label">${short ? 'Net worth' : 'Total net worth'}</p>
     <h1 class="total num">${money(c.net, c.base)}</h1>
@@ -900,9 +931,8 @@ function trendCard(c) {
   const area = `${line}L${W},${H}L0,${H}Z`;
   const years = first.date.slice(0, 4) !== end.date.slice(0, 4);
   return `<section class="card trend">
-    <div class="trend-head">${title}
-      <span class="trend-chg"><span class="${cls(chg)}">${Sg(chg, c.base)} <span class="num">(${pct(chgPct)})</span></span> since ${esc(dayLabel(first.date, years))}</span>
-      ${seg}</div>
+    <div class="trend-head">${title}${seg}
+      <span class="trend-chg"><span class="${cls(chg)}">${Sg(chg, c.base)} <span class="num">(${pct(chgPct)})</span></span> since ${esc(dayLabel(first.date, years))}</span></div>
     <div class="trend-plot" role="img" aria-label="${esc(`Net worth from ${dayLabel(first.date, true)} to ${dayLabel(end.date, true)}, ${chg >= 0 ? 'up' : 'down'} ${Math.abs(chgPct).toFixed(1)}%`)}">
       <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
         <path d="${area}" fill="var(--accent)" opacity=".1"></path>
@@ -914,6 +944,21 @@ function trendCard(c) {
       <span>High <span class="num">${money(Math.max(...vals), c.base)}</span> · Low <span class="num">${money(Math.min(...vals), c.base)}</span></span>
       <span>${esc(dayLabel(end.date, years))}</span></div>
   </section>`;
+}
+function ratesCard(c) {
+  const srcName = { live: 'live', manual: 'fallback', last: 'last known', cost: 'default' };
+  const srcTitle = { live: 'Live rate', manual: 'Your fallback rate', last: 'Last known rate', cost: 'Default rate. Set yours in Settings' };
+  const decFor = rate => rate >= 10 ? 2 : 3;
+  const rows = [{ code: 'INR', text: money(c.fx.rate, 'INR', 2), src: c.fx.src }];
+  for (const [code, meta] of Object.entries(FX_EXTRA)) {
+    if (!c.hasExtra[code]) continue;
+    const info = c.fx.extra[code];
+    const n = info.rate.toFixed(decFor(info.rate));
+    const text = meta.sign.includes(code) ? n : `${meta.sign}${n}`;
+    rows.push({ code, text, src: info.src });
+  }
+  const list = rows.map(r => `<li><span><span class="code">${esc(r.code)}</span><span class="src" title="${esc(srcTitle[r.src] || '')}">${esc(srcName[r.src] || '')}</span></span><b class="num">${r.text}</b></li>`).join('');
+  return `<section class="card"><h3>Rates</h3><p class="kpi-sub">Per 1 US dollar</p><ul class="rates">${list}</ul></section>`;
 }
 function trendHover(plot, clientX) {
   const n = trendPts.length;
@@ -1007,6 +1052,7 @@ function viewOverview(c) {
     <div class="charts">
       ${trendCard(c)}
       <section class="card"><h3>Mix</h3><div class="mix">${mix}${legend}</div></section>
+      ${ratesCard(c)}
     </div>
     <div class="lower">
       <section class="card"><h3>Largest holdings</h3>${progressList(topHolds)}</section>
@@ -1195,9 +1241,9 @@ function viewSettings() {
     <div class="field"><label for="s-fx">Fallback USD/INR rate</label>
       <input id="s-fx" data-set="fx" type="number" step="any" value="${S.settings.fxManual ?? ''}" placeholder="e.g. 88.00">
       <span class="hint">Used when the live rate can't be fetched.</span></div>
-    <div class="field"><label for="s-thb">Fallback USD/THB rate</label>
-      <input id="s-thb" data-set="thb" type="number" step="any" value="${S.settings.thbManual ?? ''}" placeholder="e.g. 32.50">
-      <span class="hint">Baht per US dollar. Used for THB cash when the live rate can't be fetched.</span></div>
+    ${Object.values(FX_EXTRA).map(fx => `<div class="field"><label for="${fx.field}">${fx.label}</label>
+      <input id="${fx.field}" data-set="${fx.set}" type="number" step="any" value="${S.settings[fx.manual] ?? ''}" placeholder="${fx.ph}">
+      <span class="hint">${fx.hint}</span></div>`).join('')}
   </div>
   <div class="block"><h3 style="margin-bottom:10px">Your data</h3>
     <p class="note" style="margin:0 0 14px">While the price server is running, your holdings are saved to <b>data.json</b> next to server.py, with a daily copy kept in data-backups. Without the server they are kept in this browser only. You can also export a backup file.</p>
@@ -1299,7 +1345,7 @@ window.addEventListener('resize', markTabs);
 
 /* ---------- forms ---------- */
 const brokerF = { k: 'broker', label: 'Broker', type: 'text', req: 1, list: 'brokers', ph: 'e.g. Interactive Brokers' };
-const curF = { k: 'currency', label: 'Currency', type: 'select', opts: ['USD', 'INR', 'THB'] };
+const curF = { k: 'currency', label: 'Currency', type: 'select', opts: ['USD', 'INR', ...Object.keys(FX_EXTRA)] };
 const FORMS = {
   us: { title: 'US stock', hint: 'Use the ticker as it appears on Yahoo Finance, for example AAPL or BRK-B.', fields: [brokerF,
     { k: 'symbol', label: 'Ticker', type: 'text', req: 1, upper: 1, ph: 'AAPL' },
@@ -1396,7 +1442,8 @@ $('#frm').addEventListener('submit', e => {
   }
   save();
   $('#dlg').close();
-  if (['us', 'in', 'other'].includes(kind)) loadQuotes(); else render();
+  if (['us', 'in', 'other'].includes(kind) || (CASH_KINDS.includes(kind) && FX_EXTRA[o.currency])) loadQuotes();
+  else render();
 });
 
 /* ---------- actions ---------- */
@@ -1490,10 +1537,11 @@ document.addEventListener('input', e => {
 document.addEventListener('change', e => {
   const t = e.target;
   if (t.dataset.set === 'backend') { remote.on = false; S.settings.backend = t.value.trim(); save(); syncFromServer().then(loadQuotes); }
-  if (t.dataset.set === 'fx' || t.dataset.set === 'thb') {
+  const fxSets = { fx: ['fxManual', 'fxManualAt'] };
+  for (const fx of Object.values(FX_EXTRA)) fxSets[fx.set] = [fx.manual, fx.at];
+  if (fxSets[t.dataset.set]) {
     const v = parseFloat(t.value);
-    const manual = t.dataset.set === 'fx' ? 'fxManual' : 'thbManual';
-    const at = t.dataset.set === 'fx' ? 'fxManualAt' : 'thbManualAt';
+    const [manual, at] = fxSets[t.dataset.set];
     S.settings[manual] = isNaN(v) ? null : v; S.settings[at] = Date.now(); save(); render();
   }
 });
